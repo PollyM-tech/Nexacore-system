@@ -1,7 +1,7 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.extensions import db
@@ -11,6 +11,17 @@ class AdminUser(db.Model):
     __tablename__ = "admin_users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+
+    organization_id: Mapped[int | None] = mapped_column(
+        ForeignKey("organizations.id"),
+        nullable=True,
+        index=True,
+    )
+
+    organization = relationship(
+    "Organization",
+    backref="users",
+)
 
     full_name: Mapped[str] = mapped_column(
         String(150),

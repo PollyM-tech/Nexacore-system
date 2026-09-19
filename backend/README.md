@@ -8,14 +8,54 @@ The backend is built with Flask + PostgreSQL + JWT authentication.
 The frontend should be built with React + Vite + Tailwind CSS.
 
 1. Project Structure
-billing-system/
-├── backend/          # Flask backend
-├── frontend/         # React frontend
-├── docs/
-├── radius/
-├── .gitignore
-└── README.md
-The frontend developer should work mainly inside:
+NEXACORE
+│
+├── Platform
+│   ├── Organizations / ISPs
+│   ├── Platform administrators
+│   └── SaaS subscriptions
+│
+├── ISP Customers
+│   ├── Customers
+│   ├── Customer accounts
+│   ├── Tickets
+│   └── Communication
+│
+├── Internet Access
+│   ├── PPPoE
+│   ├── Hotspot
+│   ├── Static IP
+│   └── DHCP
+│
+├── Network
+│   ├── Sites
+│   ├── MikroTik routers
+│   ├── RADIUS
+│   ├── CPE
+│   ├── OLT
+│   └── Router monitoring
+│
+├── Service Management
+│   ├── Plans
+│   ├── Subscriptions
+│   ├── FUP
+│   ├── Burst
+│   └── Expiry / suspension
+│
+├── Finance
+│   ├── Payments
+│   ├── M-PESA
+│   ├── Invoices
+│   ├── Expenditure
+│   └── Reports
+│
+└── Monitoring / Analytics
+    ├── Online users
+    ├── Traffic
+    ├── Top downloaders
+    ├── Router health
+    ├── Server health
+    └── Revenue analytics
 
 billing-system/frontend/
 2. Backend Development URL

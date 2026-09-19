@@ -1,1 +1,29 @@
 Single-database configuration for Flask.
+current architecture checkpoint
+                 Nexacore Platform
+
+                 super_admin
+                     |
+          -------------------------
+          |                       |
+     Developer 1             Developer 2
+
+
+                 Organizations
+
+                     |
+        ------------------------------
+        |                            |
+
+ Tendazi Networks             Future ISP
+
+       |
+       |
+   organization_admin
+
+       |
+       |
+   Customers
+   Sites
+   Routers
+   Plans
