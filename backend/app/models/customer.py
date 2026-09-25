@@ -19,11 +19,10 @@ class Customer(db.Model):
     )
 
     organization_id: Mapped[int | None] = mapped_column(
-    ForeignKey("organizations.id"),
-    nullable=True,
-    index=True,
+        ForeignKey("organizations.id"),
+        nullable=True,
+        index=True,
     )
-
 
     customer_code: Mapped[str] = mapped_column(
         String(20),

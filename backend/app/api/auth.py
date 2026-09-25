@@ -138,6 +138,16 @@ def login():
                 "full_name": user.full_name,
                 "email": user.email,
                 "role": user.role,
+                "organization" : (
+                    {
+                        
+                        "id": user.organization.id,
+                        "name": user.organization.name,
+                        "slug": user.organization.slug,
+                    }
+                    if user.organization
+                    else None
+                ),
             },
         },
     }, 200
