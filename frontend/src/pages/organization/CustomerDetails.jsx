@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { getCustomer } from "../../api/customer";
-
+import {getCustomer, updateCustomerStatus} from "../../api/customer";
 export default function CustomerDetails() {
   const { customerId } = useParams();
   const navigate = useNavigate();
@@ -9,6 +8,8 @@ export default function CustomerDetails() {
   const [customer, setCustomer] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [statusLoading, setStatusLoading] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -76,6 +77,38 @@ export default function CustomerDetails() {
   if (!customer) {
     return null;
   }
+
+async function handleStatusChange(newStatus) {
+  if (!customer) {
+    return;
+  }
+
+  setError("");
+  setStatusMessage("");
+
+  try {
+    setStatusLoading(true);
+
+    const response = await updateCustomerStatus(
+      customer.id,
+      newStatus
+    );
+
+    setCustomer(response.data.customer);
+
+    setStatusMessage(
+      `Customer status changed to ${newStatus}.`
+    );
+  } catch (error) {
+    setError(
+      error.response?.data?.message ||
+        error.message ||
+        "Unable to update customer status."
+    );
+  } finally {
+    setStatusLoading(false);
+  }
+}
 
   return (
     <div className="min-h-full bg-gray-50 p-6">
@@ -241,6 +274,74 @@ export default function CustomerDetails() {
           </div>
         </div>
 
+        {/* Status Management */}
+<div className="rounded-xl border bg-white p-6">
+
+  <h2 className="mb-2 text-lg font-semibold text-gray-900">
+    Account Status
+  </h2>
+
+  <p className="mb-5 text-sm text-gray-500">
+    Change the customer's service/account status.
+  </p>
+
+  {statusMessage && (
+    <div className="mb-4 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700">
+      {statusMessage}
+    </div>
+  )}
+
+  <div className="flex flex-wrap gap-3">
+
+    <button
+      type="button"
+      disabled={
+        statusLoading ||
+        customer.status === "active"
+      }
+      onClick={() =>
+        handleStatusChange("active")
+      }
+      className="rounded-lg bg-green-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {statusLoading &&
+      customer.status !== "active"
+        ? "Updating..."
+        : "Set Active"}
+    </button>
+
+    <button
+      type="button"
+      disabled={
+        statusLoading ||
+        customer.status === "suspended"
+      }
+      onClick={() =>
+        handleStatusChange("suspended")
+      }
+      className="rounded-lg bg-yellow-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-yellow-600 disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      Set Suspended
+    </button>
+
+    <button
+      type="button"
+      disabled={
+        statusLoading ||
+        customer.status === "inactive"
+      }
+      onClick={() =>
+        handleStatusChange("inactive")
+      }
+      className="rounded-lg bg-gray-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      Set Inactive
+    </button>
+
+  </div>
+
+</div>
+
         {/* Notes */}
         <div className="rounded-xl border bg-white p-6 lg:col-span-2">
 
@@ -259,6 +360,7 @@ export default function CustomerDetails() {
       {/* Actions */}
       <div className="mt-6 flex justify-end gap-3">
 
+
         <button
           type="button"
           onClick={() =>
@@ -272,6 +374,12 @@ export default function CustomerDetails() {
         </button>
 
       </div>
+
+      {statusMessage && (
+        <p className="mt-3 text-right text-sm text-green-700" role="status">
+          {statusMessage}
+        </p>
+      )}
 
     </div>
   );
