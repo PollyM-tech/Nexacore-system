@@ -13,6 +13,7 @@ import OrganizationDashboard from "./pages/organization/Dashboard";
 import Customers from "./pages/organization/Customers";
 import AddCustomer from "./pages/organization/AddCustomer";
 import CustomerDetails from "./pages/organization/CustomerDetails";
+import EditCustomer from "./pages/organization/EditCustomer";
 
 function LoadingScreen() {
   return (
@@ -136,6 +137,17 @@ export default function App() {
     <ProtectedRoute>
       <RoleRoute role="organization_admin">
         <CustomerDetails />
+      </RoleRoute>
+    </ProtectedRoute>
+  }
+/>
+
+<Route
+  path="/isp/customers/:customerId/edit"
+  element={
+    <ProtectedRoute>
+      <RoleRoute role="organization_admin">
+        <EditCustomer />
       </RoleRoute>
     </ProtectedRoute>
   }
