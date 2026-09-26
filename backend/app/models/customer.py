@@ -1,7 +1,14 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.extensions import db
@@ -14,13 +21,26 @@ def generate_customer_code():
 class Customer(db.Model):
     __tablename__ = "customers"
 
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "phone",
+            name="uq_customer_organization_phone",
+        ),
+        UniqueConstraint(
+            "organization_id",
+            "email",
+            name="uq_customer_organization_email",
+        ),
+    )
+
     id: Mapped[int] = mapped_column(
         primary_key=True,
     )
 
-    organization_id: Mapped[int | None] = mapped_column(
+    organization_id: Mapped[int] = mapped_column(
         ForeignKey("organizations.id"),
-        nullable=True,
+        nullable=False,
         index=True,
     )
 
@@ -39,14 +59,12 @@ class Customer(db.Model):
 
     phone: Mapped[str] = mapped_column(
         String(20),
-        unique=True,
         nullable=False,
         index=True,
     )
 
     email: Mapped[str | None] = mapped_column(
         String(150),
-        unique=True,
         nullable=True,
         index=True,
     )

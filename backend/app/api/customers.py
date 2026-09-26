@@ -18,7 +18,25 @@ customers_bp = Blueprint(
 )
 
 
+# ============================================================
+# PHONE NORMALIZATION
+# ============================================================
+
 def normalize_phone(phone: str) -> str:
+    """
+    Normalize Kenyan phone numbers into the 254XXXXXXXXX format.
+
+    Examples:
+
+        0712345678
+        +254712345678
+        254712345678
+
+    become:
+
+        254712345678
+    """
+
     phone = phone.strip().replace(" ", "")
 
     if phone.startswith("+254"):
@@ -30,30 +48,56 @@ def normalize_phone(phone: str) -> str:
     return phone
 
 
+# ============================================================
+# CUSTOMER ACCESS SCOPE
+# ============================================================
+
 def customer_scope_statement(user):
     """
     Return a Customer query scoped to the authenticated user.
 
-    Super admins can access customers across all organizations.
+    Super admins:
+        Can access customers across all organizations.
 
-    Organization admins can only access customers belonging
-    to their own organization.
+    Organization admins:
+        Can only access customers belonging to their
+        own organization.
     """
 
     statement = select(Customer)
 
     if user.role == "organization_admin":
-        statement = statement.where(
-            Customer.organization_id == user.organization_id
-        )
+
+        if user.organization_id is None:
+            # This should normally never happen because an
+            # organization admin must belong to an organization.
+            statement = statement.where(
+                Customer.id == -1
+            )
+
+        else:
+            statement = statement.where(
+                Customer.organization_id == user.organization_id
+            )
 
     return statement
 
 
+# ============================================================
+# LIST CUSTOMERS
+# ============================================================
+
 @customers_bp.get("")
 @admin_required()
 def list_customers():
+
     user = get_current_user()
+
+    if user is None:
+        return {
+            "status": "error",
+            "message": "Authenticated user not found.",
+        }, 401
 
     page = request.args.get(
         "page",
@@ -79,11 +123,18 @@ def list_customers():
         type=str,
     ).strip().lower()
 
+    # Prevent unreasonable pagination values.
+    page = max(page, 1)
     per_page = min(max(per_page, 1), 100)
 
     statement = customer_scope_statement(user)
 
+    # --------------------------------------------------------
+    # SEARCH
+    # --------------------------------------------------------
+
     if search:
+
         pattern = f"%{search}%"
 
         statement = statement.where(
@@ -95,14 +146,39 @@ def list_customers():
             )
         )
 
+    # --------------------------------------------------------
+    # STATUS FILTER
+    # --------------------------------------------------------
+
     if status:
+
+        allowed_statuses = {
+            "active",
+            "suspended",
+            "inactive",
+        }
+
+        if status not in allowed_statuses:
+            return {
+                "status": "error",
+                "message": "Invalid customer status.",
+            }, 400
+
         statement = statement.where(
             Customer.status == status
         )
 
+    # --------------------------------------------------------
+    # ORDER
+    # --------------------------------------------------------
+
     statement = statement.order_by(
         Customer.created_at.desc()
     )
+
+    # --------------------------------------------------------
+    # PAGINATION
+    # --------------------------------------------------------
 
     pagination = db.paginate(
         statement,
@@ -130,12 +206,27 @@ def list_customers():
     }, 200
 
 
+# ============================================================
+# CREATE CUSTOMER
+# ============================================================
+
 @customers_bp.post("")
 @admin_required()
 def create_customer():
+
     user = get_current_user()
 
+    if user is None:
+        return {
+            "status": "error",
+            "message": "Authenticated user not found.",
+        }, 401
+
     data = request.get_json(silent=True) or {}
+
+    # --------------------------------------------------------
+    # BASIC FIELDS
+    # --------------------------------------------------------
 
     full_name = str(
         data.get("full_name", "")
@@ -157,38 +248,70 @@ def create_customer():
         data.get("notes", "")
     ).strip() or None
 
-    if not full_name or not phone:
+    # --------------------------------------------------------
+    # REQUIRED FIELDS
+    # --------------------------------------------------------
+
+    if not full_name:
         return {
             "status": "error",
-            "message": "Full name and phone number are required.",
+            "message": "Full name is required.",
         }, 400
 
-    # ---------------------------------------------------------
+    if not phone:
+        return {
+            "status": "error",
+            "message": "Phone number is required.",
+        }, 400
+
+    # --------------------------------------------------------
     # DETERMINE ORGANIZATION
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
+
+    organization_id = None
+
+    # Organization administrator
     if user.role == "organization_admin":
-        # Organization admins can NEVER choose another
-        # organization. Their organization comes from the
-        # authenticated database user.
+
+        if user.organization_id is None:
+            return {
+                "status": "error",
+                "message": "User is not assigned to an organization.",
+            }, 403
+
+        # IMPORTANT:
+        # Never trust organization_id supplied by the frontend.
         organization_id = user.organization_id
 
+    # Super administrator
     elif user.role == "super_admin":
-        # Super admins must explicitly select the organization
-        # when creating a customer.
-        organization_id = data.get("organization_id")
+
+        organization_id = data.get(
+            "organization_id"
+        )
 
         if organization_id is None:
             return {
                 "status": "error",
-                "message": "organization_id is required for super administrators.",
+                "message": (
+                    "organization_id is required "
+                    "for super administrators."
+                ),
             }, 400
 
         try:
-            organization_id = int(organization_id)
+            organization_id = int(
+                organization_id
+            )
+
         except (TypeError, ValueError):
+
             return {
                 "status": "error",
-                "message": "organization_id must be a valid integer.",
+                "message": (
+                    "organization_id must be "
+                    "a valid integer."
+                ),
             }, 400
 
         organization = db.session.get(
@@ -209,47 +332,59 @@ def create_customer():
             }, 403
 
     else:
+
         return {
             "status": "error",
             "message": "Unauthorized access.",
         }, 403
 
-    if organization_id is None:
-        return {
-            "status": "error",
-            "message": "User is not assigned to an organization.",
-        }, 403
+    # --------------------------------------------------------
+    # CHECK PHONE WITHIN ORGANIZATION
+    # --------------------------------------------------------
 
-    # ---------------------------------------------------------
-    # CHECK PHONE
-    # ---------------------------------------------------------
     existing_phone = db.session.scalar(
         select(Customer).where(
-            Customer.phone == phone
+            Customer.organization_id == organization_id,
+            Customer.phone == phone,
         )
     )
 
     if existing_phone is not None:
+
         return {
             "status": "error",
-            "message": "A customer with this phone number already exists.",
+            "message": (
+                "A customer with this phone number "
+                "already exists in this organization."
+            ),
         }, 409
 
-    # ---------------------------------------------------------
-    # CHECK EMAIL
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
+    # CHECK EMAIL WITHIN ORGANIZATION
+    # --------------------------------------------------------
+
     if email:
+
         existing_email = db.session.scalar(
             select(Customer).where(
-                Customer.email == email
+                Customer.organization_id == organization_id,
+                Customer.email == email,
             )
         )
 
         if existing_email is not None:
+
             return {
                 "status": "error",
-                "message": "A customer with this email already exists.",
+                "message": (
+                    "A customer with this email "
+                    "already exists in this organization."
+                ),
             }, 409
+
+    # --------------------------------------------------------
+    # CREATE CUSTOMER
+    # --------------------------------------------------------
 
     customer = Customer(
         organization_id=organization_id,
@@ -262,15 +397,21 @@ def create_customer():
     )
 
     try:
+
         db.session.add(customer)
         db.session.commit()
 
     except IntegrityError:
+
         db.session.rollback()
 
         return {
             "status": "error",
-            "message": "Unable to create customer because of conflicting data.",
+            "message": (
+                "Unable to create customer because "
+                "the phone number or email is already "
+                "in use within this organization."
+            ),
         }, 409
 
     return {
@@ -282,18 +423,34 @@ def create_customer():
     }, 201
 
 
+# ============================================================
+# GET SINGLE CUSTOMER
+# ============================================================
+
 @customers_bp.get("/<int:customer_id>")
 @admin_required()
 def get_customer(customer_id):
+
     user = get_current_user()
 
-    statement = customer_scope_statement(user).where(
+    if user is None:
+        return {
+            "status": "error",
+            "message": "Authenticated user not found.",
+        }, 401
+
+    statement = customer_scope_statement(
+        user
+    ).where(
         Customer.id == customer_id
     )
 
-    customer = db.session.scalar(statement)
+    customer = db.session.scalar(
+        statement
+    )
 
     if customer is None:
+
         return {
             "status": "error",
             "message": "Customer not found.",
@@ -307,34 +464,59 @@ def get_customer(customer_id):
     }, 200
 
 
+# ============================================================
+# UPDATE CUSTOMER
+# ============================================================
+
 @customers_bp.patch("/<int:customer_id>")
 @admin_required()
 def update_customer(customer_id):
+
     user = get_current_user()
 
-    statement = customer_scope_statement(user).where(
+    if user is None:
+        return {
+            "status": "error",
+            "message": "Authenticated user not found.",
+        }, 401
+
+    # --------------------------------------------------------
+    # FIND CUSTOMER USING TENANT SCOPE
+    # --------------------------------------------------------
+
+    statement = customer_scope_statement(
+        user
+    ).where(
         Customer.id == customer_id
     )
 
-    customer = db.session.scalar(statement)
+    customer = db.session.scalar(
+        statement
+    )
 
     if customer is None:
+
         return {
             "status": "error",
             "message": "Customer not found.",
         }, 404
 
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(
+        silent=True
+    ) or {}
 
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
     # FULL NAME
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
+
     if "full_name" in data:
+
         full_name = str(
             data["full_name"]
         ).strip()
 
         if not full_name:
+
             return {
                 "status": "error",
                 "message": "Full name cannot be empty.",
@@ -342,88 +524,127 @@ def update_customer(customer_id):
 
         customer.full_name = full_name
 
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
     # PHONE
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
+
     if "phone" in data:
+
         phone = normalize_phone(
             str(data["phone"])
         )
 
+        if not phone:
+
+            return {
+                "status": "error",
+                "message": "Phone number cannot be empty.",
+            }, 400
+
         existing_phone = db.session.scalar(
             select(Customer).where(
+                Customer.organization_id
+                == customer.organization_id,
+
                 Customer.phone == phone,
+
                 Customer.id != customer.id,
             )
         )
 
-        if existing_phone:
+        if existing_phone is not None:
+
             return {
                 "status": "error",
-                "message": "Phone number is already in use.",
+                "message": (
+                    "Phone number is already in use "
+                    "within this organization."
+                ),
             }, 409
 
         customer.phone = phone
 
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
     # EMAIL
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
+
     if "email" in data:
+
         email = str(
             data["email"] or ""
         ).strip().lower() or None
 
         if email:
+
             existing_email = db.session.scalar(
                 select(Customer).where(
+                    Customer.organization_id
+                    == customer.organization_id,
+
                     Customer.email == email,
+
                     Customer.id != customer.id,
                 )
             )
 
-            if existing_email:
+            if existing_email is not None:
+
                 return {
                     "status": "error",
-                    "message": "Email is already in use.",
+                    "message": (
+                        "Email is already in use "
+                        "within this organization."
+                    ),
                 }, 409
 
         customer.email = email
 
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
     # ADDRESS
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
+
     if "address" in data:
+
         customer.address = str(
             data["address"] or ""
         ).strip() or None
 
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
     # NOTES
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
+
     if "notes" in data:
+
         customer.notes = str(
             data["notes"] or ""
         ).strip() or None
 
-    # ---------------------------------------------------------
-    # ORGANIZATION ID IS NEVER EDITABLE HERE
-    # ---------------------------------------------------------
-    # We intentionally do not read organization_id from the
-    # request body.
+    # --------------------------------------------------------
+    # ORGANIZATION ID
+    # --------------------------------------------------------
     #
-    # A customer cannot be moved between organizations through
-    # this endpoint.
-    # ---------------------------------------------------------
+    # NEVER accept organization_id here.
+    #
+    # Customers cannot be moved between organizations
+    # through this endpoint.
+    #
+    # --------------------------------------------------------
 
     try:
+
         db.session.commit()
 
     except IntegrityError:
+
         db.session.rollback()
 
         return {
             "status": "error",
-            "message": "Unable to update customer because of conflicting data.",
+            "message": (
+                "Unable to update customer because "
+                "the phone number or email is already "
+                "in use within this organization."
+            ),
         }, 409
 
     return {
@@ -435,24 +656,48 @@ def update_customer(customer_id):
     }, 200
 
 
-@customers_bp.patch("/<int:customer_id>/status")
+# ============================================================
+# UPDATE CUSTOMER STATUS
+# ============================================================
+
+@customers_bp.patch(
+    "/<int:customer_id>/status"
+)
 @admin_required()
 def update_customer_status(customer_id):
+
     user = get_current_user()
 
-    statement = customer_scope_statement(user).where(
+    if user is None:
+        return {
+            "status": "error",
+            "message": "Authenticated user not found.",
+        }, 401
+
+    # --------------------------------------------------------
+    # FIND CUSTOMER USING TENANT SCOPE
+    # --------------------------------------------------------
+
+    statement = customer_scope_statement(
+        user
+    ).where(
         Customer.id == customer_id
     )
 
-    customer = db.session.scalar(statement)
+    customer = db.session.scalar(
+        statement
+    )
 
     if customer is None:
+
         return {
             "status": "error",
             "message": "Customer not found.",
         }, 404
 
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(
+        silent=True
+    ) or {}
 
     status = str(
         data.get("status", "")
@@ -465,6 +710,7 @@ def update_customer_status(customer_id):
     }
 
     if status not in allowed_statuses:
+
         return {
             "status": "error",
             "message": "Invalid customer status.",
@@ -473,9 +719,11 @@ def update_customer_status(customer_id):
     customer.status = status
 
     try:
+
         db.session.commit()
 
     except IntegrityError:
+
         db.session.rollback()
 
         return {

@@ -159,9 +159,17 @@ def login():
 def me():
     user_id = get_jwt_identity()
 
+    try:
+        user_id = int(user_id)
+    except (TypeError, ValueError):
+        return {
+            "status": "error",
+            "message": "Invalid user identity.",
+        }, 401
+
     user = db.session.get(
         AdminUser,
-        int(user_id),
+        user_id,
     )
 
     if user is None:
@@ -169,6 +177,21 @@ def me():
             "status": "error",
             "message": "User not found.",
         }, 404
+
+    if not user.is_active:
+        return {
+            "status": "error",
+            "message": "Account is disabled.",
+        }, 403
+
+    organization = None
+
+    if user.organization is not None:
+        organization = {
+            "id": user.organization.id,
+            "name": user.organization.name,
+            "slug": user.organization.slug,
+        }
 
     return {
         "status": "success",
@@ -179,6 +202,7 @@ def me():
                 "email": user.email,
                 "role": user.role,
                 "is_active": user.is_active,
+                "organization": organization,
             }
         },
     }, 200

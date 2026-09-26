@@ -1,0 +1,52 @@
+                                         Table "public.customers"
+     Column      |           Type           | Collation | Nullable |                Default                
+-----------------+--------------------------+-----------+----------+---------------------------------------
+ id              | integer                  |           | not null | nextval('customers_id_seq'::regclass)
+ customer_code   | character varying(20)    |           | not null | 
+ full_name       | character varying(150)   |           | not null | 
+ phone           | character varying(20)    |           | not null | 
+ email           | character varying(150)   |           |          | 
+ address         | character varying(255)   |           |          | 
+ notes           | text                     |           |          | 
+ status          | character varying(20)    |           | not null | 
+ created_at      | timestamp with time zone |           | not null | now()
+ updated_at      | timestamp with time zone |           | not null | now()
+ organization_id | integer                  |           | not null | 
+Indexes:
+    "customers_pkey" PRIMARY KEY, btree (id)
+    "ix_customers_customer_code" UNIQUE, btree (customer_code)
+    "ix_customers_email" btree (email)
+    "ix_customers_organization_id" btree (organization_id)
+    "ix_customers_phone" btree (phone)
+    "ix_customers_status" btree (status)
+    "uq_customer_organization_email" UNIQUE CONSTRAINT, btree (organization_id, email)
+    "uq_customer_organization_phone" UNIQUE CONSTRAINT, btree (organization_id, phone)
+Foreign-key constraints:
+    "customers_organization_id_fkey" FOREIGN KEY (organization_id) REFERENCES organizations(id)
+
+                                         Table "public.customers"
+     Column      |           Type           | Collation | Nullable |                Default                
+-----------------+--------------------------+-----------+----------+---------------------------------------
+ id              | integer                  |           | not null | nextval('customers_id_seq'::regclass)
+ customer_code   | character varying(20)    |           | not null | 
+ full_name       | character varying(150)   |           | not null | 
+ phone           | character varying(20)    |           | not null | 
+ email           | character varying(150)   |           |          | 
+ address         | character varying(255)   |           |          | 
+ notes           | text                     |           |          | 
+ status          | character varying(20)    |           | not null | 
+ created_at      | timestamp with time zone |           | not null | now()
+ updated_at      | timestamp with time zone |           | not null | now()
+ organization_id | integer                  |           | not null | 
+Indexes:
+    "customers_pkey" PRIMARY KEY, btree (id)
+    "ix_customers_customer_code" UNIQUE, btree (customer_code)
+    "ix_customers_email" btree (email)
+    "ix_customers_organization_id" btree (organization_id)
+    "ix_customers_phone" btree (phone)
+    "ix_customers_status" btree (status)
+    "uq_customer_organization_email" UNIQUE CONSTRAINT, btree (organization_id, email)
+    "uq_customer_organization_phone" UNIQUE CONSTRAINT, btree (organization_id, phone)
+Foreign-key constraints:
+    "customers_organization_id_fkey" FOREIGN KEY (organization_id) REFERENCES organizations(id)
+
