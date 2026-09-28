@@ -7,6 +7,7 @@ from app.extensions import cors, db, jwt, migrate
 from app.models.admin_user import AdminUser
 from app.models.customer import Customer
 from app.models.organization import Organization
+from app.models.service_plan import ServicePlan
 
 
 def create_app():
@@ -34,10 +35,12 @@ def create_app():
     from app.api.customers import customers_bp
     from app.api.health import health_bp
     from app.api.organizations import organizations_bp
+    from app.api.service_plans import service_plans_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(customers_bp)
     app.register_blueprint(health_bp)
     app.register_blueprint(organizations_bp)
+    app.register_blueprint(service_plans_bp)
 
     return app
