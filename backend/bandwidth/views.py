@@ -6,6 +6,11 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from organizations.permissions import (
+    NETWORK_ROLES,
+    READ_ONLY_ROLES,
+    HasOrganizationRole,
+)
 from organizations.services import get_user_organization
 
 from . import services
@@ -51,7 +56,12 @@ class LiveUsageView(APIView):
 
     permission_classes = [
         IsAuthenticated,
+        HasOrganizationRole,
     ]
+
+    role_permissions = {
+        "get": READ_ONLY_ROLES,
+    }
 
     @extend_schema(
         tags=["bandwidth"],
@@ -85,11 +95,19 @@ class LiveUsageView(APIView):
 class SyncBandwidthView(APIView):
     """
     Record a snapshot of current active sessions.
+
+    This action may communicate with MikroTik
+    routers, so it is restricted to network roles.
     """
 
     permission_classes = [
         IsAuthenticated,
+        HasOrganizationRole,
     ]
+
+    role_permissions = {
+        "post": NETWORK_ROLES,
+    }
 
     @extend_schema(
         tags=["bandwidth"],
@@ -131,7 +149,12 @@ class ConsumptionSummaryView(APIView):
 
     permission_classes = [
         IsAuthenticated,
+        HasOrganizationRole,
     ]
+
+    role_permissions = {
+        "get": READ_ONLY_ROLES,
+    }
 
     @extend_schema(
         tags=["bandwidth"],
@@ -168,7 +191,12 @@ class UsageLogsView(APIView):
 
     permission_classes = [
         IsAuthenticated,
+        HasOrganizationRole,
     ]
+
+    role_permissions = {
+        "get": READ_ONLY_ROLES,
+    }
 
     @extend_schema(
         tags=["bandwidth"],
@@ -193,7 +221,12 @@ class UsageLogsView(APIView):
 class TopUsersView(APIView):
     permission_classes = [
         IsAuthenticated,
+        HasOrganizationRole,
     ]
+
+    role_permissions = {
+        "get": READ_ONLY_ROLES,
+    }
 
     @extend_schema(
         tags=["bandwidth"],
@@ -222,7 +255,12 @@ class TopUsersView(APIView):
 class RouterSummariesView(APIView):
     permission_classes = [
         IsAuthenticated,
+        HasOrganizationRole,
     ]
+
+    role_permissions = {
+        "get": READ_ONLY_ROLES,
+    }
 
     @extend_schema(
         tags=["bandwidth"],
@@ -258,7 +296,12 @@ class ExportUsageView(APIView):
 
     permission_classes = [
         IsAuthenticated,
+        HasOrganizationRole,
     ]
+
+    role_permissions = {
+        "get": READ_ONLY_ROLES,
+    }
 
     @extend_schema(
         tags=["bandwidth"],
