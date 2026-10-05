@@ -1,163 +1,521 @@
-"""Historical bandwidth analytics derived from persisted BandwidthSample rows."""
+"""
+Historical bandwidth analytics derived from persisted BandwidthSample rows.
+
+Every public service function requires an organization so historical data
+cannot cross ISP boundaries.
+"""
+
 from datetime import timedelta
 
 from django.db.models import Count, Sum
 from django.utils import timezone
 
-from mikrotik.models import MikrotikRouter, RouterInfo
+from mikrotik.models import (
+    MikrotikRouter,
+    RouterInfo,
+)
 
 from ..models import BandwidthSample
 from .live import live_usage
 
 
 def _i(value):
-    return int(value or 0)
+    return int(
+        value or 0
+    )
 
 
-def record_snapshot(router_id=None):
-    """Capture current active sessions as BandwidthSample rows ("Sync Bandwidth")."""
-    data = live_usage(router_id)
-    info_map = {ri.pppoe_name.lower(): ri for ri in RouterInfo.objects.select_related("customer").all()}
-    router_map = {r.id: r for r in MikrotikRouter.objects.all()}
+def record_snapshot(
+    organization,
+    router_id=None,
+):
+    """
+    Capture current active PPPoE sessions as BandwidthSample rows.
+
+    Every stored sample receives permanent organization ownership.
+    """
+
+    data = live_usage(
+        organization,
+        router_id,
+    )
+
+    router_infos = (
+        RouterInfo.objects
+        .filter(
+            customer__organization=organization,
+            router__organization=organization,
+        )
+        .select_related(
+            "customer",
+            "router",
+        )
+    )
+
+    info_map = {
+        (
+            info.router_id,
+            info.pppoe_name.lower(),
+        ): info
+        for info in router_infos
+    }
+
+    routers = (
+        MikrotikRouter.objects
+        .filter(
+            organization=organization
+        )
+    )
+
+    router_map = {
+        router.id: router
+        for router in routers
+    }
 
     samples = []
-    for s in data["sessions"]:
-        info = info_map.get(s["pppoe_id"].lower())
-        samples.append(BandwidthSample(
-            customer=info.customer if info else None,
-            router=router_map.get(s["router_id"]),
-            pppoe_id=s["pppoe_id"],
-            customer_name=s["customer_name"],
-            upload_bytes=s["upload_bytes"],
-            download_bytes=s["download_bytes"],
-            uptime=s["uptime"],
-        ))
+
+    for session in data["sessions"]:
+        router_id_value = session[
+            "router_id"
+        ]
+
+        key = (
+            router_id_value,
+            session["pppoe_id"].lower(),
+        )
+
+        info = info_map.get(
+            key
+        )
+
+        router = router_map.get(
+            router_id_value
+        )
+
+        samples.append(
+            BandwidthSample(
+                organization=organization,
+
+                customer=(
+                    info.customer
+                    if info
+                    else None
+                ),
+
+                router=router,
+
+                pppoe_id=session[
+                    "pppoe_id"
+                ],
+
+                customer_name=session[
+                    "customer_name"
+                ],
+
+                upload_bytes=session[
+                    "upload_bytes"
+                ],
+
+                download_bytes=session[
+                    "download_bytes"
+                ],
+
+                uptime=session[
+                    "uptime"
+                ],
+            )
+        )
+
     if samples:
-        BandwidthSample.objects.bulk_create(samples)
+        BandwidthSample.objects.bulk_create(
+            samples
+        )
 
     return {
         "status": "ok",
         "recorded": len(samples),
-        "router_connected": data["router_connected"],
+        "router_connected": data[
+            "router_connected"
+        ],
     }
 
 
-def _window(start_date):
-    agg = BandwidthSample.objects.filter(created_at__date__gte=start_date).aggregate(
-        upload=Sum("upload_bytes"), download=Sum("download_bytes"),
+def _window(
+    organization,
+    start_date,
+):
+    aggregate = (
+        BandwidthSample.objects
+        .filter(
+            organization=organization,
+            created_at__date__gte=start_date,
+        )
+        .aggregate(
+            upload=Sum(
+                "upload_bytes"
+            ),
+            download=Sum(
+                "download_bytes"
+            ),
+        )
     )
-    up, down = _i(agg["upload"]), _i(agg["download"])
-    return {"upload_bytes": up, "download_bytes": down, "total_bytes": up + down}
 
+    upload = _i(
+        aggregate["upload"]
+    )
 
-def consumption_summary():
-    today = timezone.now().date()
+    download = _i(
+        aggregate["download"]
+    )
+
     return {
-        "today": _window(today),
-        "last_7_days": _window(today - timedelta(days=6)),
-        "last_30_days": _window(today - timedelta(days=29)),
+        "upload_bytes": upload,
+        "download_bytes": download,
+        "total_bytes": (
+            upload + download
+        ),
     }
 
 
-def _filtered(filters):
-    qs = BandwidthSample.objects.select_related("router", "customer")
+def consumption_summary(
+    organization,
+):
+    today = timezone.now().date()
+
+    return {
+        "today": _window(
+            organization,
+            today,
+        ),
+
+        "last_7_days": _window(
+            organization,
+            today - timedelta(days=6),
+        ),
+
+        "last_30_days": _window(
+            organization,
+            today - timedelta(days=29),
+        ),
+    }
+
+
+def _filtered(
+    organization,
+    filters,
+):
+    queryset = (
+        BandwidthSample.objects
+        .filter(
+            organization=organization
+        )
+        .select_related(
+            "router",
+            "customer",
+        )
+    )
+
     if filters.get("date_from"):
-        qs = qs.filter(created_at__date__gte=filters["date_from"])
+        queryset = queryset.filter(
+            created_at__date__gte=filters[
+                "date_from"
+            ]
+        )
+
     if filters.get("date_to"):
-        qs = qs.filter(created_at__date__lte=filters["date_to"])
+        queryset = queryset.filter(
+            created_at__date__lte=filters[
+                "date_to"
+            ]
+        )
+
     if filters.get("router"):
-        qs = qs.filter(router_id=filters["router"])
+        queryset = queryset.filter(
+            router_id=filters[
+                "router"
+            ]
+        )
+
     if filters.get("customer"):
-        qs = qs.filter(customer__customer_id=filters["customer"])
-    return qs
+        queryset = queryset.filter(
+            customer__customer_id=filters[
+                "customer"
+            ]
+        )
+
+    return queryset
 
 
-def usage_logs(filters, limit=1000):
-    qs = _filtered(filters)
-    totals = qs.aggregate(upload=Sum("upload_bytes"), download=Sum("download_bytes"))
+def usage_logs(
+    organization,
+    filters,
+    limit=1000,
+):
+    queryset = _filtered(
+        organization,
+        filters,
+    )
+
+    totals = queryset.aggregate(
+        upload=Sum(
+            "upload_bytes"
+        ),
+        download=Sum(
+            "download_bytes"
+        ),
+    )
+
     rows = [
         {
-            "id": s.id,
-            "date": s.created_at.isoformat(),
-            "pppoe_id": s.pppoe_id,
-            "customer_name": s.customer_name,
-            "upload_bytes": s.upload_bytes,
-            "download_bytes": s.download_bytes,
-            "total_bytes": s.upload_bytes + s.download_bytes,
-            "uptime": s.uptime,
-            "router": s.router.name if s.router else "—",
+            "id": sample.id,
+
+            "date": (
+                sample.created_at
+                .isoformat()
+            ),
+
+            "pppoe_id": sample.pppoe_id,
+
+            "customer_name": (
+                sample.customer_name
+            ),
+
+            "upload_bytes": (
+                sample.upload_bytes
+            ),
+
+            "download_bytes": (
+                sample.download_bytes
+            ),
+
+            "total_bytes": (
+                sample.upload_bytes
+                + sample.download_bytes
+            ),
+
+            "uptime": sample.uptime,
+
+            "router": (
+                sample.router.name
+                if sample.router
+                else "—"
+            ),
         }
-        for s in qs.order_by("-created_at")[:limit]
+
+        for sample in queryset.order_by(
+            "-created_at"
+        )[:limit]
     ]
-    up, down = _i(totals["upload"]), _i(totals["download"])
+
+    upload = _i(
+        totals["upload"]
+    )
+
+    download = _i(
+        totals["download"]
+    )
+
     return {
         "results": rows,
-        "totals": {"upload_bytes": up, "download_bytes": down, "total_bytes": up + down},
+
+        "totals": {
+            "upload_bytes": upload,
+            "download_bytes": download,
+            "total_bytes": (
+                upload + download
+            ),
+        },
     }
 
 
-def top_users(filters, limit=50):
-    qs = _filtered(filters)
-    rows = (
-        qs.values("pppoe_id", "customer_name")
-        .annotate(
-            upload_bytes=Sum("upload_bytes"),
-            download_bytes=Sum("download_bytes"),
-            sessions=Count("id"),
-        )
-        .order_by("-download_bytes")[:limit]
+def top_users(
+    organization,
+    filters,
+    limit=50,
+):
+    queryset = _filtered(
+        organization,
+        filters,
     )
+
+    rows = (
+        queryset
+        .values(
+            "pppoe_id",
+            "customer_name",
+        )
+        .annotate(
+            upload_bytes=Sum(
+                "upload_bytes"
+            ),
+            download_bytes=Sum(
+                "download_bytes"
+            ),
+            sessions=Count(
+                "id"
+            ),
+        )
+        .order_by(
+            "-download_bytes"
+        )[:limit]
+    )
+
     return [
         {
-            "pppoe_id": r["pppoe_id"],
-            "customer_name": r["customer_name"],
-            "upload_bytes": _i(r["upload_bytes"]),
-            "download_bytes": _i(r["download_bytes"]),
-            "total_bytes": _i(r["upload_bytes"]) + _i(r["download_bytes"]),
-            "sessions": r["sessions"],
+            "pppoe_id": row[
+                "pppoe_id"
+            ],
+
+            "customer_name": row[
+                "customer_name"
+            ],
+
+            "upload_bytes": _i(
+                row["upload_bytes"]
+            ),
+
+            "download_bytes": _i(
+                row["download_bytes"]
+            ),
+
+            "total_bytes": (
+                _i(row["upload_bytes"])
+                + _i(row["download_bytes"])
+            ),
+
+            "sessions": row[
+                "sessions"
+            ],
         }
-        for r in rows
+
+        for row in rows
     ]
 
 
-def router_summaries(filters):
-    qs = _filtered(filters)
-    rows = (
-        qs.values("router__name")
-        .annotate(
-            upload_bytes=Sum("upload_bytes"),
-            download_bytes=Sum("download_bytes"),
-            sessions=Count("id"),
-            clients=Count("pppoe_id", distinct=True),
-        )
-        .order_by("-download_bytes")
+def router_summaries(
+    organization,
+    filters,
+):
+    queryset = _filtered(
+        organization,
+        filters,
     )
+
+    rows = (
+        queryset
+        .values(
+            "router__name"
+        )
+        .annotate(
+            upload_bytes=Sum(
+                "upload_bytes"
+            ),
+            download_bytes=Sum(
+                "download_bytes"
+            ),
+            sessions=Count(
+                "id"
+            ),
+            clients=Count(
+                "pppoe_id",
+                distinct=True,
+            ),
+        )
+        .order_by(
+            "-download_bytes"
+        )
+    )
+
     return [
         {
-            "router": r["router__name"] or "—",
-            "upload_bytes": _i(r["upload_bytes"]),
-            "download_bytes": _i(r["download_bytes"]),
-            "total_bytes": _i(r["upload_bytes"]) + _i(r["download_bytes"]),
-            "sessions": r["sessions"],
-            "clients": r["clients"],
+            "router": (
+                row["router__name"]
+                or "—"
+            ),
+
+            "upload_bytes": _i(
+                row["upload_bytes"]
+            ),
+
+            "download_bytes": _i(
+                row["download_bytes"]
+            ),
+
+            "total_bytes": (
+                _i(row["upload_bytes"])
+                + _i(row["download_bytes"])
+            ),
+
+            "sessions": row[
+                "sessions"
+            ],
+
+            "clients": row[
+                "clients"
+            ],
         }
-        for r in rows
+
+        for row in rows
     ]
 
 
-def weekly_consumption():
-    """Per-day download/upload totals for the last 7 days (best-effort bar chart)."""
+def weekly_consumption(
+    organization,
+):
+    """
+    Per-day upload/download totals for the last seven days.
+    """
+
     today = timezone.now().date()
+
     rows = []
-    for offset in range(6, -1, -1):
-        day = today - timedelta(days=offset)
-        agg = BandwidthSample.objects.filter(created_at__date=day).aggregate(
-            upload=Sum("upload_bytes"), download=Sum("download_bytes"),
+
+    for offset in range(
+        6,
+        -1,
+        -1,
+    ):
+        day = (
+            today
+            - timedelta(days=offset)
         )
-        rows.append({
-            "date": day.isoformat(),
-            "label": day.strftime("%a"),
-            "download_bytes": _i(agg["download"]),
-            "upload_bytes": _i(agg["upload"]),
-        })
+
+        aggregate = (
+            BandwidthSample.objects
+            .filter(
+                organization=organization,
+                created_at__date=day,
+            )
+            .aggregate(
+                upload=Sum(
+                    "upload_bytes"
+                ),
+                download=Sum(
+                    "download_bytes"
+                ),
+            )
+        )
+
+        rows.append(
+            {
+                "date": day.isoformat(),
+
+                "label": day.strftime(
+                    "%a"
+                ),
+
+                "download_bytes": _i(
+                    aggregate[
+                        "download"
+                    ]
+                ),
+
+                "upload_bytes": _i(
+                    aggregate[
+                        "upload"
+                    ]
+                ),
+            }
+        )
+
     return rows

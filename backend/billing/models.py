@@ -16,7 +16,13 @@ class Package(MetaInfo):
         ("quarterly", "Quarterly"),
         ("yearly", "Yearly"),
     ]
-    name = models.CharField(max_length=100, unique=True)
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.CASCADE,
+        related_name="packages")
+
+    name = models.CharField(max_length=100)
     package_type = models.CharField(max_length=20, choices=PACKAGE_TYPE_CHOICES, default="monthly")
     speed = models.CharField(max_length=50, help_text="e.g., 10 Mbps, 20 Mbps")
     price = models.DecimalField(max_digits=10, decimal_places=2)
@@ -30,6 +36,9 @@ class Package(MetaInfo):
         ordering = ["price"]
         verbose_name = "Internet Package"
         verbose_name_plural = "Internet Packages"
+        constraints = [
+            models.UniqueConstraint(fields=["organization", "name"], name="unique_package_name_per_organization")
+        ]
 
 
 class MonthlyBill(MetaInfo):

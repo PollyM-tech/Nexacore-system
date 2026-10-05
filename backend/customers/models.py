@@ -13,6 +13,20 @@ class MetaInfo(models.Model):
 class AddressZone(MetaInfo):
     name = models.CharField(max_length=100)
 
+    organization = models.ForeignKey("organizations.Organization",
+                                     on_delete=models.CASCADE,
+                                     related_name="zones")
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(fields=["organization", "name"], name="unique_zone_per_organization")
+        ]
+                                    
+
+
 
 class CustomerProfile(MetaInfo):
     CUSTOMER_STATUS_CHOICES = [
@@ -21,7 +35,13 @@ class CustomerProfile(MetaInfo):
         ("free", "Free / Complimentary"),
         ("left", "Left / Churned"),
     ]
-    customer_id = models.CharField(max_length=20, unique=True)
+
+    organization = models.ForeignKey(
+    "organizations.Organization",
+    on_delete=models.CASCADE,
+    related_name="customers")
+
+    customer_id = models.CharField(max_length=20)
     customer_name = models.CharField(max_length=255)
     nid = models.CharField(max_length=15, blank=True, null=True)
     phone_number = models.CharField(max_length=15)
@@ -33,6 +53,13 @@ class CustomerProfile(MetaInfo):
     customer_status = models.CharField(max_length=15, choices=CUSTOMER_STATUS_CHOICES, default="active")
     extended_billing_days = models.IntegerField(default=0)
     balance = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+
+    class Meta:
+        ordering = ["customer_id"]
+        constraints = [
+            models.UniqueConstraint(fields=["organization", "customer_id"], name="unique_customer_id_per_organization")
+        ]
+
 
 
 class SupportTicket(MetaInfo):

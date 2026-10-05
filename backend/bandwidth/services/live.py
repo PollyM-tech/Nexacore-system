@@ -1,8 +1,13 @@
-"""Live PPPoE usage parsing directly from active RouterOS API connections.
-
-Everything here is best-effort: if a router is unreachable we simply skip it and
-flag the connection status, never raising so the endpoint can never 500.
 """
+Live PPPoE usage parsing directly from active RouterOS API connections.
+
+All router/customer queries are organization-scoped so one ISP can never
+receive another ISP's live network information.
+
+Router failures are best-effort: an unreachable router is skipped rather
+than causing the entire API request to fail.
+"""
+
 import time
 
 from mikrotik.models import MikrotikRouter, RouterInfo
@@ -16,91 +21,243 @@ def _to_int(value):
         return 0
 
 
-def customer_map():
-    """Map lowercased PPPoE username -> customer metadata (name, package, billing)."""
-    out = {}
-    qs = RouterInfo.objects.select_related("customer", "customer__package").all()
-    for info in qs:
+def customer_map(organization):
+    """
+    Map (router_id, lowercased PPPoE username) to customer metadata.
+
+    Including router_id avoids collisions when identical PPPoE usernames
+    exist on different routers.
+    """
+
+    result = {}
+
+    queryset = (
+        RouterInfo.objects
+        .filter(
+            customer__organization=organization,
+            router__organization=organization,
+        )
+        .select_related(
+            "customer",
+            "customer__package",
+            "router",
+        )
+    )
+
+    for info in queryset:
         customer = info.customer
+
         if not customer:
             continue
-        out[info.pppoe_name.lower()] = {
+
+        key = (
+            info.router_id,
+            info.pppoe_name.lower(),
+        )
+
+        result[key] = {
             "customer_id": customer.customer_id,
             "customer_name": customer.customer_name,
-            "package": customer.package.name if customer.package_id else None,
+            "package": (
+                customer.package.name
+                if customer.package_id
+                else None
+            ),
             "billing_status": customer.customer_status,
             "balance": float(customer.balance or 0),
         }
-    return out
+
+    return result
 
 
 def _collect_router(router, cust_map):
-    """Return (sessions, connected) for a single router. Never raises."""
+    """
+    Return (sessions, connected) for one router.
+
+    Router connection failures never escape this function.
+    """
+
     try:
         conn = MikrotikConnection(
-            host=router.host, port=router.port,
-            username=router.username, password=router.password,
+            host=router.host,
+            port=router.port,
+            username=router.username,
+            password=router.password,
         )
+
         if not conn.api:
             return [], False
 
-        active = conn.api.get_resource("/ppp/active").get()
+        active = (
+            conn.api
+            .get_resource("/ppp/active")
+            .get()
+        )
+
         try:
-            secrets = conn.api.get_resource("/ppp/secret").get()
-            profiles = {s.get("name", "").lower(): s.get("profile", "") for s in secrets}
+            secrets = (
+                conn.api
+                .get_resource("/ppp/secret")
+                .get()
+            )
+
+            profiles = {
+                secret.get("name", "").lower():
+                    secret.get("profile", "")
+                for secret in secrets
+            }
+
         except Exception:
             profiles = {}
 
         sessions = []
-        for a in active:
-            name = a.get("name", "")
-            meta = cust_map.get(name.lower(), {})
-            sessions.append({
-                "pppoe_id": name,
-                "customer_id": meta.get("customer_id"),
-                "customer_name": meta.get("customer_name") or name,
-                "address": a.get("address", ""),
-                "caller_id": a.get("caller-id", ""),
-                "uptime": a.get("uptime", ""),
-                # On MikroTik bytes-out is traffic sent TO the customer (download).
-                "download_bytes": _to_int(a.get("bytes-out")),
-                "upload_bytes": _to_int(a.get("bytes-in")),
-                "profile": meta.get("package") or profiles.get(name.lower(), ""),
-                "billing_status": meta.get("billing_status", "unknown"),
-                "balance": meta.get("balance", 0),
-                "router": router.name,
-                "router_id": router.id,
-            })
+
+        for active_session in active:
+            name = active_session.get(
+                "name",
+                "",
+            )
+
+            key = (
+                router.id,
+                name.lower(),
+            )
+
+            meta = cust_map.get(
+                key,
+                {},
+            )
+
+            sessions.append(
+                {
+                    "pppoe_id": name,
+                    "customer_id": meta.get(
+                        "customer_id"
+                    ),
+                    "customer_name": (
+                        meta.get("customer_name")
+                        or name
+                    ),
+                    "address": active_session.get(
+                        "address",
+                        "",
+                    ),
+                    "caller_id": active_session.get(
+                        "caller-id",
+                        "",
+                    ),
+                    "uptime": active_session.get(
+                        "uptime",
+                        "",
+                    ),
+
+                    # MikroTik bytes-out is traffic sent
+                    # TO the customer (download).
+                    "download_bytes": _to_int(
+                        active_session.get(
+                            "bytes-out"
+                        )
+                    ),
+
+                    # MikroTik bytes-in is traffic received
+                    # FROM the customer (upload).
+                    "upload_bytes": _to_int(
+                        active_session.get(
+                            "bytes-in"
+                        )
+                    ),
+
+                    "profile": (
+                        meta.get("package")
+                        or profiles.get(
+                            name.lower(),
+                            "",
+                        )
+                    ),
+
+                    "billing_status": meta.get(
+                        "billing_status",
+                        "unknown",
+                    ),
+
+                    "balance": meta.get(
+                        "balance",
+                        0,
+                    ),
+
+                    "router": router.name,
+                    "router_id": router.id,
+                }
+            )
+
         return sessions, True
+
     except Exception:
         return [], False
 
 
-def live_usage(router_id=None):
-    """Aggregate live active-session stats across active routers.
-
-    Speeds (Mbps) are intentionally NOT computed here — the client derives them
-    from byte-counter deltas between ~10s polls. We return cumulative byte totals
-    plus a server timestamp to support that derivation.
+def live_usage(
+    organization,
+    router_id=None,
+):
     """
-    routers = MikrotikRouter.objects.filter(is_active=True)
-    if router_id:
-        routers = routers.filter(id=router_id)
+    Aggregate live PPPoE sessions across an organization's active routers.
 
-    cust_map = customer_map()
+    Byte values are cumulative RouterOS session counters. Client-side speed
+    calculations can derive rates from the difference between successive
+    polls.
+    """
+
+    routers = (
+        MikrotikRouter.objects
+        .filter(
+            organization=organization,
+            is_active=True,
+        )
+    )
+
+    if router_id:
+        routers = routers.filter(
+            id=router_id
+        )
+
+    cust_map = customer_map(
+        organization
+    )
+
     sessions = []
     connected = False
+
     for router in routers:
-        router_sessions, ok = _collect_router(router, cust_map)
+        router_sessions, ok = _collect_router(
+            router,
+            cust_map,
+        )
+
         connected = connected or ok
-        sessions.extend(router_sessions)
+
+        sessions.extend(
+            router_sessions
+        )
 
     return {
         "router_connected": connected,
         "router_count": routers.count(),
         "online_clients": len(sessions),
-        "total_download_bytes": sum(s["download_bytes"] for s in sessions),
-        "total_upload_bytes": sum(s["upload_bytes"] for s in sessions),
-        "timestamp": int(time.time() * 1000),
+
+        "total_download_bytes": sum(
+            session["download_bytes"]
+            for session in sessions
+        ),
+
+        "total_upload_bytes": sum(
+            session["upload_bytes"]
+            for session in sessions
+        ),
+
+        "timestamp": int(
+            time.time() * 1000
+        ),
+
         "sessions": sessions,
     }

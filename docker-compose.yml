@@ -1,4 +1,4 @@
-name: isp
+name: lintech
 
 services:
   db:

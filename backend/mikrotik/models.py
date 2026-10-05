@@ -15,6 +15,17 @@ class MikrotikRouter(MetaInfo):
         ("disconnected", "Disconnected"),
         ("error", "Connection Error"),
     ]
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.CASCADE,
+        related_name="mikrotik_routers")
+
+    name = models.CharField(
+        max_length=100,
+        help_text="Router name for identification",
+    ) 
+
     name = models.CharField(max_length=100, help_text="Router name for identification")
     host = models.CharField(max_length=255, help_text="Router IP address or hostname")
     port = models.IntegerField(default=8728, help_text="API port (default: 8728)")
@@ -32,6 +43,12 @@ class MikrotikRouter(MetaInfo):
     class Meta:
         verbose_name = "MikroTik Router"
         verbose_name_plural = "MikroTik Routers"
+        ordering = ["name"]
+
+        constraints = [
+            models.UniqueConstraint(fields=["organization", "name"], name="unique_router_name_per_organization"),
+            models.UniqueConstraint(fields=["organization", "host", "port"], name="unique_router_endpoint_per_organization"),
+        ]
 
 
 class RouterInfo(MetaInfo):

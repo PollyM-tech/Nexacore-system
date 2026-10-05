@@ -1,25 +1,15 @@
-# NetPulse · Backend
+# Lintech Backend
 
-Django REST API — customers, billing, MikroTik routers, OLT/ONU (SNMP),
-bandwidth, SMS, scheduling and the customer portal.
+Django REST API for ISP billing, customer management, MikroTik integration,
+OLT/ONU monitoring, bandwidth tracking, SMS, scheduling, reporting, and
+customer self-service.
 
 ## Setup
 
 ```bash
-uv sync
-uv run python manage.py migrate
-uv run python manage.py createsuperuser
-uv run python manage.py runserver
-```
-
-No Postgres needed for local dev — the app falls back to SQLite when
-`DATABASE_URL` is unset.
-
-## Environment
-
-Copy [../.env.example](../.env.example) for the full list. The essentials:
-
-- `DJANGO_SECRET_KEY`
-- `DJANGO_DEBUG` (default `True`)
-- `DJANGO_ALLOWED_HOSTS` (comma-separated)
-- `DATABASE_URL` — Postgres; unset = SQLite
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py createsuperuser
+python manage.py runserver

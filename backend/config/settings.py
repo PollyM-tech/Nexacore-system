@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'organizations',
     'customers',
     'billing',
     'mikrotik',
@@ -174,7 +175,7 @@ from .configuration import *
 
 # Django Q2 settings
 Q_CLUSTER = {
-    "name": "ISP",
+    "name": "lintech",
     "workers": 4,
     "timeout": 300,
     "retry": 320,
