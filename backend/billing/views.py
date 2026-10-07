@@ -7,6 +7,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from auditlog.services import AuditService
 from core.pagination import CustomPagination
 from organizations.mixins import OrganizationQuerySetMixin
 from organizations.permissions import (
@@ -59,13 +60,9 @@ class PackageViewSet(
     ]
 
     role_permissions = {
-        # Every organization staff role may
-        # view available packages.
         "list": READ_ONLY_ROLES,
         "retrieve": READ_ONLY_ROLES,
 
-        # Only owner/admin/billing may
-        # manage commercial packages.
         "create": BILLING_ROLES,
         "update": BILLING_ROLES,
         "partial_update": BILLING_ROLES,
@@ -102,6 +99,107 @@ class PackageViewSet(
 
     pagination_class = CustomPagination
 
+    def perform_create(
+        self,
+        serializer,
+    ):
+        organization = self.get_organization()
+
+        package = serializer.save(
+            organization=organization
+        )
+
+        AuditService.log(
+            organization=organization,
+            user=self.request.user,
+            request=self.request,
+            action="package.created",
+            resource_type="Package",
+            resource_id=package.pk,
+            description=(
+                f"Package '{package.name}' created."
+            ),
+            metadata={
+                "name": package.name,
+                "package_type": package.package_type,
+                "speed": package.speed,
+                "price": str(package.price),
+                "is_active": package.is_active,
+            },
+        )
+
+    def perform_update(
+        self,
+        serializer,
+    ):
+        instance = self.get_object()
+
+        before = {
+            "name": instance.name,
+            "package_type": instance.package_type,
+            "speed": instance.speed,
+            "price": str(instance.price),
+            "is_active": instance.is_active,
+        }
+
+        package = serializer.save()
+
+        after = {
+            "name": package.name,
+            "package_type": package.package_type,
+            "speed": package.speed,
+            "price": str(package.price),
+            "is_active": package.is_active,
+        }
+
+        AuditService.log(
+            organization=self.get_organization(),
+            user=self.request.user,
+            request=self.request,
+            action="package.updated",
+            resource_type="Package",
+            resource_id=package.pk,
+            description=(
+                f"Package '{package.name}' updated."
+            ),
+            metadata={
+                "before": before,
+                "after": after,
+            },
+        )
+
+    def perform_destroy(
+        self,
+        instance,
+    ):
+        organization = self.get_organization()
+
+        resource_id = instance.pk
+        package_name = instance.name
+
+        metadata = {
+            "name": instance.name,
+            "package_type": instance.package_type,
+            "speed": instance.speed,
+            "price": str(instance.price),
+            "is_active": instance.is_active,
+        }
+
+        instance.delete()
+
+        AuditService.log(
+            organization=organization,
+            user=self.request.user,
+            request=self.request,
+            action="package.deleted",
+            resource_type="Package",
+            resource_id=resource_id,
+            description=(
+                f"Package '{package_name}' deleted."
+            ),
+            metadata=metadata,
+        )
+
     @action(
         detail=True,
         methods=["patch"],
@@ -113,6 +211,8 @@ class PackageViewSet(
     ):
         package = self.get_object()
 
+        old_status = package.is_active
+
         package.is_active = not package.is_active
 
         package.save(
@@ -120,6 +220,23 @@ class PackageViewSet(
                 "is_active",
                 "updated_at",
             ]
+        )
+
+        AuditService.log(
+            organization=self.get_organization(),
+            user=request.user,
+            request=request,
+            action="package.status_changed",
+            resource_type="Package",
+            resource_id=package.pk,
+            description=(
+                f"Package '{package.name}' "
+                f"{'enabled' if package.is_active else 'disabled'}."
+            ),
+            metadata={
+                "before": old_status,
+                "after": package.is_active,
+            },
         )
 
         serializer = self.get_serializer(
@@ -139,14 +256,11 @@ class BillingViewSet(viewsets.ViewSet):
     ]
 
     role_permissions = {
-        # Financial write operations.
         "generate_monthly_bills": BILLING_ROLES,
         "generate_customer_monthly_bill": BILLING_ROLES,
         "generate_connection_fee": BILLING_ROLES,
         "add_transaction": BILLING_ROLES,
 
-        # Financial information may be viewed
-        # by organization staff.
         "monthly_bills": READ_ONLY_ROLES,
         "connection_fees": READ_ONLY_ROLES,
         "transactions": READ_ONLY_ROLES,
@@ -187,6 +301,31 @@ class BillingViewSet(viewsets.ViewSet):
                 organization
             )
 
+        AuditService.log(
+            organization=organization,
+            user=request.user,
+            request=request,
+            action="billing.monthly_bills_generated",
+            resource_type="MonthlyBill",
+            resource_id="bulk",
+            description=(
+                f"Generated {len(created)} monthly bills."
+            ),
+            metadata={
+                "billing_month": (
+                    int(billing_month)
+                    if billing_month
+                    else None
+                ),
+                "billing_year": (
+                    int(billing_year)
+                    if billing_year
+                    else None
+                ),
+                "bills_created": len(created),
+            },
+        )
+
         return Response(
             {
                 "status": "success",
@@ -216,21 +355,29 @@ class BillingViewSet(viewsets.ViewSet):
             raise_exception=True
         )
 
+        customer_id = serializer.validated_data[
+            "customer_id"
+        ]
+
+        billing_month = serializer.validated_data[
+            "billing_month"
+        ]
+
+        billing_year = serializer.validated_data[
+            "billing_year"
+        ]
+
+        notes = serializer.validated_data.get(
+            "notes",
+            "",
+        )
+
         result = BillingService.create_specific_monthly_bill(
             organization,
-            serializer.validated_data[
-                "customer_id"
-            ],
-            serializer.validated_data[
-                "billing_month"
-            ],
-            serializer.validated_data[
-                "billing_year"
-            ],
-            serializer.validated_data.get(
-                "notes",
-                "",
-            ),
+            customer_id,
+            billing_month,
+            billing_year,
+            notes,
         )
 
         if result["status"] == "error":
@@ -242,8 +389,31 @@ class BillingViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        bill = result["bill"]
+
+        AuditService.log(
+            organization=organization,
+            user=request.user,
+            request=request,
+            action="billing.monthly_bill_generated",
+            resource_type="MonthlyBill",
+            resource_id=bill.pk,
+            description=(
+                f"Monthly bill generated for "
+                f"customer '{customer_id}'."
+            ),
+            metadata={
+                "customer_id": customer_id,
+                "billing_month": billing_month,
+                "billing_year": billing_year,
+                "total_amount": str(
+                    bill.total_amount
+                ),
+            },
+        )
+
         response_serializer = MonthlyBillSerializer(
-            result["bill"]
+            bill
         )
 
         return Response(
@@ -273,18 +443,24 @@ class BillingViewSet(viewsets.ViewSet):
             raise_exception=True
         )
 
+        customer_id = serializer.validated_data[
+            "customer_id"
+        ]
+
+        total_amount = serializer.validated_data[
+            "total_amount"
+        ]
+
+        notes = serializer.validated_data.get(
+            "notes",
+            "",
+        )
+
         result = BillingService.create_connection_fee(
             organization,
-            serializer.validated_data[
-                "customer_id"
-            ],
-            serializer.validated_data[
-                "total_amount"
-            ],
-            serializer.validated_data.get(
-                "notes",
-                "",
-            ),
+            customer_id,
+            total_amount,
+            notes,
         )
 
         if result["status"] == "error":
@@ -296,8 +472,29 @@ class BillingViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        fee = result["fee"]
+
+        AuditService.log(
+            organization=organization,
+            user=request.user,
+            request=request,
+            action="billing.connection_fee_generated",
+            resource_type="ConnectionFee",
+            resource_id=fee.pk,
+            description=(
+                f"Connection fee created for "
+                f"customer '{customer_id}'."
+            ),
+            metadata={
+                "customer_id": customer_id,
+                "total_amount": str(
+                    total_amount
+                ),
+            },
+        )
+
         response_serializer = ConnectionFeeSerializer(
-            result["fee"]
+            fee
         )
 
         return Response(
@@ -437,29 +634,60 @@ class BillingViewSet(viewsets.ViewSet):
             raise_exception=True
         )
 
+        customer_id = serializer.validated_data[
+            "customer_id"
+        ]
+
+        amount = serializer.validated_data[
+            "amount"
+        ]
+
+        payment_method = serializer.validated_data[
+            "payment_method"
+        ]
+
+        transaction_id = (
+            serializer.validated_data.get(
+                "transaction_id"
+            )
+        )
+
+        notes = serializer.validated_data.get(
+            "notes",
+            "",
+        )
+
         transaction_obj = (
             BillingService.add_payment_transaction(
                 organization=organization,
-                customer_id=serializer.validated_data[
-                    "customer_id"
-                ],
-                amount=serializer.validated_data[
-                    "amount"
-                ],
-                payment_method=serializer.validated_data[
-                    "payment_method"
-                ],
-                transaction_id=(
-                    serializer.validated_data.get(
-                        "transaction_id"
-                    )
-                ),
+                customer_id=customer_id,
+                amount=amount,
+                payment_method=payment_method,
+                transaction_id=transaction_id,
                 received_by=request.user,
-                notes=serializer.validated_data.get(
-                    "notes",
-                    "",
-                ),
+                notes=notes,
             )
+        )
+
+        AuditService.log(
+            organization=organization,
+            user=request.user,
+            request=request,
+            action="billing.payment_recorded",
+            resource_type="PaymentTransaction",
+            resource_id=transaction_obj.pk,
+            description=(
+                f"Payment of {amount} recorded for "
+                f"customer '{customer_id}'."
+            ),
+            metadata={
+                "customer_id": customer_id,
+                "amount": str(amount),
+                "payment_method": payment_method,
+                "transaction_id": (
+                    transaction_id or ""
+                ),
+            },
         )
 
         response_serializer = (

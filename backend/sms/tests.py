@@ -1,16 +1,33 @@
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase
-from rest_framework.test import APIRequestFactory, force_authenticate
 
-from customers.models import AddressZone, CustomerProfile
-from organizations.models import Organization, OrganizationMembership
-from sms.models import SmsGateway, SmsLog, SmsTemplate
+from rest_framework.test import (
+    APIRequestFactory,
+    force_authenticate,
+)
+
+from customers.models import (
+    AddressZone,
+    CustomerProfile,
+)
+from organizations.models import (
+    Organization,
+    OrganizationMembership,
+)
+from sms.models import (
+    SmsGateway,
+    SmsLog,
+    SmsTemplate,
+)
 from sms.providers import build_spec
 from sms.recipients import resolve_recipients
 from sms.service import SmsService
 from sms.views import (
     SmsGatewayViewSet,
     SmsLogViewSet,
+    SmsSendViewSet,
     SmsTemplateViewSet,
 )
 
@@ -123,7 +140,11 @@ class SmsTenantIsolationTests(TestCase):
             status="sent",
         )
 
-    def _list_response(self, viewset, user):
+    def _list_response(
+        self,
+        viewset,
+        user,
+    ):
         view = viewset.as_view(
             {
                 "get": "list",
@@ -224,14 +245,16 @@ class SmsTenantIsolationTests(TestCase):
             )
 
     def test_default_gateway_isolated_per_organization(self):
-        second_alpha_gateway = SmsGateway.objects.create(
-            organization=self.org_a,
-            provider="africastalking",
-            label="Alpha Backup",
-            sender_id="ALPHA2",
-            credentials={},
-            is_active=True,
-            is_default=True,
+        second_alpha_gateway = (
+            SmsGateway.objects.create(
+                organization=self.org_a,
+                provider="africastalking",
+                label="Alpha Backup",
+                sender_id="ALPHA2",
+                credentials={},
+                is_active=True,
+                is_default=True,
+            )
         )
 
         self.gateway_a.refresh_from_db()
@@ -388,7 +411,10 @@ class AfricaTalkingProviderTests(TestCase):
 
         self.assertEqual(
             spec.url,
-            "https://api.sandbox.africastalking.com/version1/messaging",
+            (
+                "https://api.sandbox."
+                "africastalking.com/version1/messaging"
+            ),
         )
 
         self.assertEqual(
@@ -445,7 +471,10 @@ class AfricaTalkingProviderTests(TestCase):
 
         self.assertEqual(
             spec.url,
-            "https://api.africastalking.com/version1/messaging",
+            (
+                "https://api."
+                "africastalking.com/version1/messaging"
+            ),
         )
 
         self.assertEqual(
@@ -498,7 +527,10 @@ class AfricaTalkingProviderTests(TestCase):
 
         self.assertEqual(
             spec.url,
-            "https://api.sandbox.africastalking.com/version1/messaging",
+            (
+                "https://api.sandbox."
+                "africastalking.com/version1/messaging"
+            ),
         )
 
     def test_unknown_provider_fails(self):
@@ -509,3 +541,336 @@ class AfricaTalkingProviderTests(TestCase):
                 "+254733333333",
                 "Unknown provider",
             )
+
+
+class SmsRolePermissionTests(TestCase):
+    """
+    Verify SMS role-based access control.
+
+    Gateway administration is owner/admin only.
+    Billing can manage templates and send SMS.
+    Support can send SMS.
+    Technician and viewer cannot send SMS.
+    """
+
+    def setUp(self):
+        self.factory = APIRequestFactory()
+
+        self.organization = Organization.objects.create(
+            name="SMS Role Test ISP",
+            slug="sms-role-test-isp",
+            organization_type="hybrid",
+            status="active",
+            is_active=True,
+        )
+
+        self.gateway = SmsGateway.objects.create(
+            organization=self.organization,
+            provider="africastalking",
+            label="Test Gateway",
+            sender_id="LINTECH",
+            credentials={
+                "username": "sandbox",
+                "api_key": "test-key",
+            },
+            is_active=True,
+            is_default=True,
+        )
+
+        self.owner = self._create_user(
+            "sms_owner",
+            "owner",
+        )
+
+        self.billing = self._create_user(
+            "sms_billing",
+            "billing",
+        )
+
+        self.support = self._create_user(
+            "sms_support",
+            "support",
+        )
+
+        self.technician = self._create_user(
+            "sms_technician",
+            "technician",
+        )
+
+        self.viewer = self._create_user(
+            "sms_viewer",
+            "viewer",
+        )
+
+    def _create_user(
+        self,
+        username,
+        role,
+    ):
+        user = User.objects.create_user(
+            username=username,
+            password="testpass123",
+        )
+
+        OrganizationMembership.objects.create(
+            organization=self.organization,
+            user=user,
+            role=role,
+            is_active=True,
+        )
+
+        return user
+
+    def _request(
+        self,
+        method,
+        path,
+        user,
+        data=None,
+    ):
+        method_func = getattr(
+            self.factory,
+            method.lower(),
+        )
+
+        request = method_func(
+            path,
+            data=data or {},
+            format="json",
+        )
+
+        force_authenticate(
+            request,
+            user=user,
+        )
+
+        return request
+
+    def test_viewer_can_read_sms_logs(self):
+        SmsLog.objects.create(
+            organization=self.organization,
+            mobile="0712345678",
+            message="Test log",
+            provider="africastalking",
+            status="sent",
+        )
+
+        view = SmsLogViewSet.as_view(
+            {
+                "get": "list",
+            }
+        )
+
+        request = self._request(
+            "get",
+            "/sms/logs/",
+            self.viewer,
+        )
+
+        response = view(request)
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+    def test_billing_user_can_create_template(self):
+        view = SmsTemplateViewSet.as_view(
+            {
+                "post": "create",
+            }
+        )
+
+        request = self._request(
+            "post",
+            "/sms/templates/",
+            self.billing,
+            {
+                "name": "Payment Reminder",
+                "category": "payment",
+                "body": "Your payment is due.",
+            },
+        )
+
+        response = view(request)
+
+        self.assertEqual(
+            response.status_code,
+            201,
+        )
+
+        self.assertTrue(
+            SmsTemplate.objects.filter(
+                organization=self.organization,
+                name="Payment Reminder",
+            ).exists()
+        )
+
+    def test_technician_cannot_create_template(self):
+        view = SmsTemplateViewSet.as_view(
+            {
+                "post": "create",
+            }
+        )
+
+        request = self._request(
+            "post",
+            "/sms/templates/",
+            self.technician,
+            {
+                "name": "Blocked Template",
+                "category": "payment",
+                "body": "This should not be created.",
+            },
+        )
+
+        response = view(request)
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
+
+        self.assertFalse(
+            SmsTemplate.objects.filter(
+                organization=self.organization,
+                name="Blocked Template",
+            ).exists()
+        )
+
+    @patch(
+        "sms.views.SmsService.send_one"
+    )
+    def test_billing_user_cannot_test_gateway(
+        self,
+        mock_send_one,
+    ):
+        view = SmsGatewayViewSet.as_view(
+            {
+                "post": "test",
+            }
+        )
+
+        request = self._request(
+            "post",
+            f"/sms/gateways/{self.gateway.pk}/test/",
+            self.billing,
+            {
+                "mobile": "0712345678",
+                "message": "Gateway test",
+            },
+        )
+
+        response = view(
+            request,
+            pk=self.gateway.pk,
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
+
+        mock_send_one.assert_not_called()
+
+    @patch(
+        "sms.views.SmsService.send_bulk"
+    )
+    @patch(
+        "sms.views.resolve_recipients"
+    )
+    def test_support_user_can_send_sms(
+        self,
+        mock_resolve_recipients,
+        mock_send_bulk,
+    ):
+        mock_resolve_recipients.return_value = [
+            (
+                "0712345678",
+                None,
+            )
+        ]
+
+        mock_send_bulk.return_value = {
+            "status": "success",
+            "sent": 1,
+            "failed": 0,
+        }
+
+        view = SmsSendViewSet.as_view(
+            {
+                "post": "send",
+            }
+        )
+
+        request = self._request(
+            "post",
+            "/sms/send/",
+            self.support,
+            {
+                "audience": "active",
+                "message": "Service notice",
+            },
+        )
+
+        response = view(request)
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        mock_resolve_recipients.assert_called_once()
+
+        mock_send_bulk.assert_called_once()
+
+        call_kwargs = (
+            mock_send_bulk.call_args.kwargs
+        )
+
+        self.assertEqual(
+            call_kwargs["organization"],
+            self.organization,
+        )
+
+        self.assertEqual(
+            call_kwargs["user"],
+            self.support,
+        )
+
+    @patch(
+        "sms.views.SmsService.send_bulk"
+    )
+    @patch(
+        "sms.views.resolve_recipients"
+    )
+    def test_technician_cannot_send_sms(
+        self,
+        mock_resolve_recipients,
+        mock_send_bulk,
+    ):
+        view = SmsSendViewSet.as_view(
+            {
+                "post": "send",
+            }
+        )
+
+        request = self._request(
+            "post",
+            "/sms/send/",
+            self.technician,
+            {
+                "audience": "active",
+                "message": "Blocked message",
+            },
+        )
+
+        response = view(request)
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
+
+        mock_resolve_recipients.assert_not_called()
+        mock_send_bulk.assert_not_called()

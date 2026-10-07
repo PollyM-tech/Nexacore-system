@@ -15,6 +15,13 @@ from rest_framework.response import Response
 from organizations.mixins import (
     OrganizationQuerySetMixin,
 )
+from organizations.permissions import (
+    ADMIN_ROLES,
+    BILLING_ROLES,
+    READ_ONLY_ROLES,
+    SUPPORT_ROLES,
+    HasOrganizationRole,
+)
 from organizations.services import (
     get_user_organization,
 )
@@ -35,6 +42,12 @@ from .serializers import (
 from .service import SmsService
 
 
+SMS_SEND_ROLES = (
+    BILLING_ROLES
+    | SUPPORT_ROLES
+)
+
+
 class SmsGatewayViewSet(
     OrganizationQuerySetMixin,
     viewsets.ModelViewSet,
@@ -47,7 +60,26 @@ class SmsGatewayViewSet(
 
     permission_classes = [
         IsAuthenticated,
+        HasOrganizationRole,
     ]
+
+    role_permissions = {
+        # Staff may inspect configured gateways.
+        "list": READ_ONLY_ROLES,
+        "retrieve": READ_ONLY_ROLES,
+
+        # Gateway credentials/configuration are
+        # administrative infrastructure settings.
+        "create": ADMIN_ROLES,
+        "update": ADMIN_ROLES,
+        "partial_update": ADMIN_ROLES,
+        "destroy": ADMIN_ROLES,
+
+        # Changing the default gateway and sending
+        # gateway tests are also admin-only.
+        "set_default": ADMIN_ROLES,
+        "test": ADMIN_ROLES,
+    }
 
     @action(
         detail=True,
@@ -143,7 +175,21 @@ class SmsTemplateViewSet(
 
     permission_classes = [
         IsAuthenticated,
+        HasOrganizationRole,
     ]
+
+    role_permissions = {
+        # All staff can view templates.
+        "list": READ_ONLY_ROLES,
+        "retrieve": READ_ONLY_ROLES,
+
+        # Billing staff often maintain payment,
+        # reminder and account-notice templates.
+        "create": BILLING_ROLES,
+        "update": BILLING_ROLES,
+        "partial_update": BILLING_ROLES,
+        "destroy": BILLING_ROLES,
+    }
 
     filter_backends = [
         DjangoFilterBackend,
@@ -179,7 +225,13 @@ class SmsLogViewSet(
 
     permission_classes = [
         IsAuthenticated,
+        HasOrganizationRole,
     ]
+
+    role_permissions = {
+        "list": READ_ONLY_ROLES,
+        "retrieve": READ_ONLY_ROLES,
+    }
 
     filter_backends = [
         DjangoFilterBackend,
@@ -203,7 +255,18 @@ class SmsSendViewSet(
 ):
     permission_classes = [
         IsAuthenticated,
+        HasOrganizationRole,
     ]
+
+    role_permissions = {
+        # Provider metadata is safe for staff
+        # to inspect.
+        "providers": READ_ONLY_ROLES,
+
+        # Owner/admin/billing/support may send.
+        # Technician and viewer may not.
+        "send": SMS_SEND_ROLES,
+    }
 
     def get_organization(self):
         return get_user_organization(

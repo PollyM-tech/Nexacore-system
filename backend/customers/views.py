@@ -7,6 +7,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from auditlog.services import AuditService
 from core.pagination import CustomPagination
 from organizations.mixins import OrganizationQuerySetMixin
 from organizations.permissions import (
@@ -59,32 +60,23 @@ class CustomerViewSet(
     ]
 
     role_permissions = {
-        # Read access for all organization staff.
         "list": READ_ONLY_ROLES,
         "retrieve": READ_ONLY_ROLES,
 
-        # Customer onboarding.
         "create": BILLING_ROLES | NETWORK_ROLES,
 
-        # General customer profile administration.
         "update": ADMIN_ROLES,
         "partial_update": ADMIN_ROLES,
         "destroy": ADMIN_ROLES,
 
-        # General operational visibility.
         "online_status": READ_ONLY_ROLES,
 
-        # Network / MikroTik operations.
         "link_existing": NETWORK_ROLES,
         "live_stats": NETWORK_ROLES,
         "update_connection": NETWORK_ROLES,
 
-        # Financial operations.
         "update_billing": BILLING_ROLES,
 
-        # Billing may suspend/reactivate customers for
-        # account reasons, while technicians may perform
-        # operational connection-state changes.
         "update_status": BILLING_ROLES | NETWORK_ROLES,
     }
 
@@ -182,6 +174,35 @@ class CustomerViewSet(
             serializer.validated_data,
         )
 
+        AuditService.log(
+            organization=organization,
+            user=request.user,
+            request=request,
+            action="customer.created",
+            resource_type="CustomerProfile",
+            resource_id=customer.customer_id,
+            description=(
+                f"Customer "
+                f"'{customer.customer_name}' created."
+            ),
+            metadata={
+                "customer_id": customer.customer_id,
+                "customer_name": customer.customer_name,
+                "phone_number": customer.phone_number,
+                "status": customer.customer_status,
+                "package_id": (
+                    customer.package_id
+                    if customer.package_id
+                    else None
+                ),
+                "zone_id": (
+                    customer.zone_id
+                    if customer.zone_id
+                    else None
+                ),
+            },
+        )
+
         response_serializer = CustomerCreateSerializer(
             customer
         )
@@ -251,6 +272,15 @@ class CustomerViewSet(
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        before = {
+            "customer_name": instance.customer_name,
+            "phone_number": instance.phone_number,
+            "address": instance.address,
+            "zone_id": instance.zone_id,
+            "package_id": instance.package_id,
+            "customer_status": instance.customer_status,
+        }
+
         serializer = CustomerDetailSerializer(
             instance,
             data=request.data,
@@ -264,7 +294,33 @@ class CustomerViewSet(
             raise_exception=True
         )
 
-        serializer.save()
+        customer = serializer.save()
+
+        after = {
+            "customer_name": customer.customer_name,
+            "phone_number": customer.phone_number,
+            "address": customer.address,
+            "zone_id": customer.zone_id,
+            "package_id": customer.package_id,
+            "customer_status": customer.customer_status,
+        }
+
+        AuditService.log(
+            organization=organization,
+            user=request.user,
+            request=request,
+            action="customer.updated",
+            resource_type="CustomerProfile",
+            resource_id=customer.customer_id,
+            description=(
+                f"Customer "
+                f"'{customer.customer_name}' updated."
+            ),
+            metadata={
+                "before": before,
+                "after": after,
+            },
+        )
 
         return Response(
             serializer.data
@@ -282,10 +338,48 @@ class CustomerViewSet(
             "customer_id"
         )
 
+        existing = (
+            CustomerService.get_customer_details(
+                organization,
+                customer_id,
+            )
+        )
+
+        if not existing:
+            return Response(
+                {
+                    "status": "error",
+                    "message": "Customer not found",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        audit_metadata = {
+            "customer_id": existing.customer_id,
+            "customer_name": existing.customer_name,
+            "phone_number": existing.phone_number,
+            "status": existing.customer_status,
+        }
+
         try:
             CustomerService.delete_customer_profile(
                 organization,
                 customer_id,
+            )
+
+            AuditService.log(
+                organization=organization,
+                user=request.user,
+                request=request,
+                action="customer.deleted",
+                resource_type="CustomerProfile",
+                resource_id=customer_id,
+                description=(
+                    f"Customer "
+                    f"'{audit_metadata['customer_name']}' "
+                    "deleted."
+                ),
+                metadata=audit_metadata,
             )
 
             return Response(
@@ -307,11 +401,6 @@ class CustomerViewSet(
         url_path="online_status",
     )
     def online_status(self, request):
-        """
-        Return PPPoE names currently online for
-        this organization's MikroTik routers.
-        """
-
         organization = self.get_organization()
 
         cache_key = (
@@ -347,11 +436,6 @@ class CustomerViewSet(
         methods=["post"],
     )
     def link_existing(self, request):
-        """
-        Link a customer with an existing
-        MikroTik PPPoE profile.
-        """
-
         organization = self.get_organization()
 
         serializer = CustomerLinkExistingSerializer(
@@ -367,6 +451,23 @@ class CustomerViewSet(
                 organization,
                 serializer.validated_data,
             )
+        )
+
+        AuditService.log(
+            organization=organization,
+            user=request.user,
+            request=request,
+            action="customer.pppoe_linked",
+            resource_type="CustomerProfile",
+            resource_id=customer.customer_id,
+            description=(
+                f"Customer "
+                f"'{customer.customer_name}' linked "
+                "to an existing PPPoE account."
+            ),
+            metadata={
+                "customer_id": customer.customer_id,
+            },
         )
 
         response_serializer = CustomerCreateSerializer(
@@ -388,12 +489,33 @@ class CustomerViewSet(
         request,
         customer_id=None,
     ):
-        """
-        Change billing day and/or
-        extended grace days.
-        """
-
         organization = self.get_organization()
+
+        existing = (
+            CustomerService.get_customer_details(
+                organization,
+                customer_id,
+            )
+        )
+
+        if not existing:
+            return Response(
+                {
+                    "status": "error",
+                    "message": "Customer not found",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        old_billing_date = (
+            existing.billing_date.isoformat()
+            if existing.billing_date
+            else None
+        )
+
+        old_extended_days = (
+            existing.extended_billing_days
+        )
 
         billing_day = request.data.get(
             "billing_day"
@@ -490,6 +612,41 @@ class CustomerViewSet(
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        AuditService.log(
+            organization=organization,
+            user=request.user,
+            request=request,
+            action="customer.billing_updated",
+            resource_type="CustomerProfile",
+            resource_id=customer.customer_id,
+            description=(
+                f"Billing settings updated for "
+                f"'{customer.customer_name}'."
+            ),
+            metadata={
+                "before": {
+                    "billing_date": old_billing_date,
+                    "extended_billing_days": (
+                        old_extended_days
+                    ),
+                },
+                "requested": {
+                    "billing_day": billing_day,
+                    "extended_billing_days": extended,
+                },
+                "after": {
+                    "billing_date": (
+                        customer.billing_date.isoformat()
+                        if customer.billing_date
+                        else None
+                    ),
+                    "extended_billing_days": (
+                        customer.extended_billing_days
+                    ),
+                },
+            },
+        )
+
         return Response(
             CustomerDetailSerializer(
                 customer
@@ -506,11 +663,6 @@ class CustomerViewSet(
         request,
         customer_id=None,
     ):
-        """
-        Return live MikroTik PPPoE
-        statistics for one customer.
-        """
-
         organization = self.get_organization()
 
         customer = (
@@ -547,7 +699,6 @@ class CustomerViewSet(
                 }
             )
 
-        # Extra tenant-safety check.
         if (
             info.router.organization_id
             != organization.id
@@ -753,6 +904,24 @@ class CustomerViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        existing = (
+            CustomerService.get_customer_details(
+                organization,
+                customer_id,
+            )
+        )
+
+        if not existing:
+            return Response(
+                {
+                    "status": "error",
+                    "message": "Customer not found",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        old_status = existing.customer_status
+
         try:
             customer, warning = (
                 CustomerService.update_customer_status(
@@ -760,6 +929,26 @@ class CustomerViewSet(
                     customer_id,
                     status_value,
                 )
+            )
+
+            AuditService.log(
+                organization=organization,
+                user=request.user,
+                request=request,
+                action="customer.status_changed",
+                resource_type="CustomerProfile",
+                resource_id=customer.customer_id,
+                description=(
+                    f"Customer "
+                    f"'{customer.customer_name}' status "
+                    f"changed from '{old_status}' "
+                    f"to '{status_value}'."
+                ),
+                metadata={
+                    "before": old_status,
+                    "after": status_value,
+                    "warning": warning or "",
+                },
             )
 
             data = CustomerCreateSerializer(
@@ -795,6 +984,41 @@ class CustomerViewSet(
     ):
         organization = self.get_organization()
 
+        existing = (
+            CustomerService.get_customer_details(
+                organization,
+                customer_id,
+            )
+        )
+
+        if not existing:
+            return Response(
+                {
+                    "status": "error",
+                    "message": "Customer not found",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        old_info = getattr(
+            existing,
+            "router_info",
+            None,
+        )
+
+        before = {
+            "router_id": (
+                old_info.router_id
+                if old_info
+                else None
+            ),
+            "pppoe_name": (
+                old_info.pppoe_name
+                if old_info
+                else ""
+            ),
+        }
+
         try:
             customer, warning = (
                 CustomerService.update_customer_connection(
@@ -809,6 +1033,43 @@ class CustomerViewSet(
                     organization,
                     customer.customer_id,
                 )
+            )
+
+            new_info = getattr(
+                instance,
+                "router_info",
+                None,
+            )
+
+            after = {
+                "router_id": (
+                    new_info.router_id
+                    if new_info
+                    else None
+                ),
+                "pppoe_name": (
+                    new_info.pppoe_name
+                    if new_info
+                    else ""
+                ),
+            }
+
+            AuditService.log(
+                organization=organization,
+                user=request.user,
+                request=request,
+                action="customer.connection_updated",
+                resource_type="CustomerProfile",
+                resource_id=customer.customer_id,
+                description=(
+                    f"Connection settings updated for "
+                    f"'{customer.customer_name}'."
+                ),
+                metadata={
+                    "before": before,
+                    "after": after,
+                    "warning": warning or "",
+                },
             )
 
             data = CustomerDetailSerializer(
@@ -937,18 +1198,14 @@ class AdminSupportTicketViewSet(
     ]
 
     role_permissions = {
-        # All staff can read support tickets.
         "list": READ_ONLY_ROLES,
         "retrieve": READ_ONLY_ROLES,
 
-        # Support team, admins, and owners can
-        # create/edit/reply to tickets.
         "create": SUPPORT_ROLES,
         "update": SUPPORT_ROLES,
         "partial_update": SUPPORT_ROLES,
         "reply": SUPPORT_ROLES,
 
-        # Destructive actions remain admin-only.
         "destroy": ADMIN_ROLES,
     }
 

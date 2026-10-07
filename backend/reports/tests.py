@@ -184,89 +184,118 @@ class ReportTenantIsolationTests(TestCase):
         )
 
         self.client = APIClient()
-        self.client.force_authenticate(self.user_a)
+        self.client.force_authenticate(
+            self.user_a
+        )
 
     def test_dashboard_only_counts_current_organization_customers(self):
-        response = self.client.get("/api/reports/dashboard/")
+        response = self.client.get(
+            "/api/reports/dashboard/"
+        )
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
         self.assertEqual(
             response.data["customers"]["total"],
             1,
         )
+
         self.assertEqual(
             response.data["customers"]["active"],
             1,
         )
+
         self.assertEqual(
             response.data["customers"]["due"],
             1,
         )
 
     def test_dashboard_only_counts_current_organization_packages(self):
-        response = self.client.get("/api/reports/dashboard/")
+        response = self.client.get(
+            "/api/reports/dashboard/"
+        )
 
         self.assertEqual(
             response.data["packages"]["total"],
             1,
         )
+
         self.assertEqual(
             response.data["packages"]["active"],
             1,
         )
 
     def test_dashboard_only_counts_current_organization_routers(self):
-        response = self.client.get("/api/reports/dashboard/")
+        response = self.client.get(
+            "/api/reports/dashboard/"
+        )
 
         self.assertEqual(
             response.data["routers"]["total"],
             1,
         )
+
         self.assertEqual(
             response.data["routers"]["active"],
             1,
         )
 
     def test_dashboard_only_counts_current_organization_tickets(self):
-        response = self.client.get("/api/reports/dashboard/")
+        response = self.client.get(
+            "/api/reports/dashboard/"
+        )
 
         self.assertEqual(
             response.data["tickets"]["total"],
             1,
         )
+
         self.assertEqual(
             response.data["tickets"]["open"],
             1,
         )
+
         self.assertEqual(
             response.data["tickets"]["resolved"],
             0,
         )
 
     def test_dashboard_revenue_excludes_other_organizations(self):
-        response = self.client.get("/api/reports/dashboard/")
+        response = self.client.get(
+            "/api/reports/dashboard/"
+        )
 
-        revenue = response.data["revenue"]
+        revenue = response.data[
+            "revenue"
+        ]
 
         self.assertEqual(
             revenue["billed"],
             1000.0,
         )
+
         self.assertEqual(
             revenue["collected"],
             400.0,
         )
+
         self.assertEqual(
             revenue["outstanding"],
             600.0,
         )
+
         self.assertEqual(
             revenue["collection_rate"],
             40,
         )
 
     def test_dashboard_today_revenue_excludes_other_organizations(self):
-        response = self.client.get("/api/reports/dashboard/")
+        response = self.client.get(
+            "/api/reports/dashboard/"
+        )
 
         self.assertEqual(
             response.data["revenue"]["today"],
@@ -274,9 +303,13 @@ class ReportTenantIsolationTests(TestCase):
         )
 
     def test_monthly_report_excludes_other_organizations(self):
-        response = self.client.get("/api/reports/dashboard/")
+        response = self.client.get(
+            "/api/reports/dashboard/"
+        )
 
-        current_month = date.today().month
+        current_month = (
+            date.today().month
+        )
 
         row = next(
             item
@@ -288,19 +321,25 @@ class ReportTenantIsolationTests(TestCase):
             row["billed"],
             1000.0,
         )
+
         self.assertEqual(
             row["collected"],
             400.0,
         )
+
         self.assertEqual(
             row["due"],
             600.0,
         )
 
     def test_yearly_report_excludes_other_organizations(self):
-        response = self.client.get("/api/reports/dashboard/")
+        response = self.client.get(
+            "/api/reports/dashboard/"
+        )
 
-        current_year = date.today().year
+        current_year = (
+            date.today().year
+        )
 
         row = next(
             item
@@ -312,7 +351,100 @@ class ReportTenantIsolationTests(TestCase):
             row["billed"],
             1000.0,
         )
+
         self.assertEqual(
             row["collected"],
             400.0,
+        )
+
+
+class ReportRolePermissionTests(TestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(
+            name="Report Role Test ISP",
+            slug="report-role-test-isp",
+            organization_type="hybrid",
+            status="active",
+            country="KE",
+            currency="KES",
+            timezone="Africa/Nairobi",
+            is_active=True,
+        )
+
+        self.viewer = self._create_user(
+            "report_viewer",
+            "viewer",
+        )
+
+        self.technician = self._create_user(
+            "report_technician",
+            "technician",
+        )
+
+        self.billing = self._create_user(
+            "report_billing",
+            "billing",
+        )
+
+        self.support = self._create_user(
+            "report_support",
+            "support",
+        )
+
+        self.client = APIClient()
+
+    def _create_user(
+        self,
+        username,
+        role,
+    ):
+        user = User.objects.create_user(
+            username=username,
+            password="testpass123",
+        )
+
+        OrganizationMembership.objects.create(
+            organization=self.organization,
+            user=user,
+            role=role,
+            is_active=True,
+        )
+
+        return user
+
+    def _assert_can_view_report(
+        self,
+        user,
+    ):
+        self.client.force_authenticate(
+            user
+        )
+
+        response = self.client.get(
+            "/api/reports/dashboard/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+    def test_viewer_can_view_report(self):
+        self._assert_can_view_report(
+            self.viewer
+        )
+
+    def test_technician_can_view_report(self):
+        self._assert_can_view_report(
+            self.technician
+        )
+
+    def test_billing_user_can_view_report(self):
+        self._assert_can_view_report(
+            self.billing
+        )
+
+    def test_support_user_can_view_report(self):
+        self._assert_can_view_report(
+            self.support
         )

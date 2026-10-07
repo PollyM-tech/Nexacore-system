@@ -21,4 +21,5 @@ urlpatterns = [
     path("api/bandwidth/", include("bandwidth.urls")),
     # Registered last: catches /api/customers/, /api/zones/, /api/tickets/
     path("api/", include("customers.urls")),
+    path("api/audit/", include("auditlog.urls")),
 ]
