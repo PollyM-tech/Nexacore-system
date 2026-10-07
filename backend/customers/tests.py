@@ -3,8 +3,12 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
-from rest_framework.test import APIRequestFactory, force_authenticate
+from rest_framework.test import (
+    APIRequestFactory,
+    force_authenticate,
+)
 
+from auditlog.models import AuditLog
 from billing.models import Package
 from customers.models import (
     AddressZone,
@@ -313,9 +317,7 @@ class CustomerRolePermissionTests(TestCase):
             None,
         )
 
-        mock_get_customer.return_value = (
-            self.customer
-        )
+        mock_get_customer.return_value = self.customer
 
         view = CustomerViewSet.as_view(
             {
@@ -412,4 +414,367 @@ class CustomerRolePermissionTests(TestCase):
         self.assertEqual(
             self.customer.customer_name,
             "Updated Customer",
+        )
+
+
+class CustomerAuditLogTests(TestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+
+        self.organization = Organization.objects.create(
+            name="Customer Audit ISP",
+            slug="customer-audit-isp",
+            organization_type="hybrid",
+            status="active",
+            country="KE",
+            currency="KES",
+            timezone="Africa/Nairobi",
+            is_active=True,
+        )
+
+        self.zone = AddressZone.objects.create(
+            organization=self.organization,
+            name="Customer Audit Zone",
+        )
+
+        self.package = Package.objects.create(
+            organization=self.organization,
+            name="Customer Audit Package",
+            package_type="monthly",
+            speed="10 Mbps",
+            price=Decimal("1000.00"),
+            is_active=True,
+        )
+
+        self.customer = CustomerProfile.objects.create(
+            organization=self.organization,
+            customer_id="AUD-C001",
+            customer_name="Audit Customer",
+            phone_number="0711000080",
+            address="Audit Address",
+            zone=self.zone,
+            package=self.package,
+            customer_status="active",
+            balance=Decimal("0.00"),
+        )
+
+        self.admin = self._create_user(
+            "customer_audit_admin",
+            "admin",
+        )
+
+        self.billing = self._create_user(
+            "customer_audit_billing",
+            "billing",
+        )
+
+        self.technician = self._create_user(
+            "customer_audit_technician",
+            "technician",
+        )
+
+    def _create_user(
+        self,
+        username,
+        role,
+    ):
+        user = User.objects.create_user(
+            username=username,
+            password="testpass123",
+        )
+
+        OrganizationMembership.objects.create(
+            organization=self.organization,
+            user=user,
+            role=role,
+            is_active=True,
+        )
+
+        return user
+
+    def _request(
+        self,
+        method,
+        path,
+        user,
+        data=None,
+    ):
+        method_func = getattr(
+            self.factory,
+            method.lower(),
+        )
+
+        request = method_func(
+            path,
+            data=data or {},
+            format="json",
+        )
+
+        force_authenticate(
+            request,
+            user=user,
+        )
+
+        return request
+
+    def test_customer_edit_creates_audit_log(self):
+        view = CustomerViewSet.as_view(
+            {
+                "patch": "partial_update",
+            }
+        )
+
+        request = self._request(
+            "patch",
+            "/customers/AUD-C001/",
+            self.admin,
+            {
+                "customer_name": (
+                    "Audit Customer Updated"
+                ),
+            },
+        )
+
+        response = view(
+            request,
+            customer_id=self.customer.customer_id,
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        log = AuditLog.objects.get(
+            organization=self.organization,
+            action="customer.updated",
+            resource_id=self.customer.customer_id,
+        )
+
+        self.assertEqual(
+            log.user,
+            self.admin,
+        )
+
+        self.assertEqual(
+            log.actor_role,
+            "admin",
+        )
+
+        self.assertEqual(
+            log.metadata["before"][
+                "customer_name"
+            ],
+            "Audit Customer",
+        )
+
+        self.assertEqual(
+            log.metadata["after"][
+                "customer_name"
+            ],
+            "Audit Customer Updated",
+        )
+
+    @patch(
+        "customers.views."
+        "CustomerService.update_billing_settings"
+    )
+    def test_billing_update_creates_audit_log(
+        self,
+        mock_update,
+    ):
+        mock_update.return_value = self.customer
+
+        view = CustomerViewSet.as_view(
+            {
+                "post": "update_billing",
+            }
+        )
+
+        request = self._request(
+            "post",
+            (
+                "/customers/AUD-C001/"
+                "update_billing/"
+            ),
+            self.billing,
+            {
+                "billing_day": 15,
+                "extended_billing_days": 3,
+            },
+        )
+
+        response = view(
+            request,
+            customer_id=self.customer.customer_id,
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        log = AuditLog.objects.get(
+            organization=self.organization,
+            action="customer.billing_updated",
+            resource_id=self.customer.customer_id,
+        )
+
+        self.assertEqual(
+            log.user,
+            self.billing,
+        )
+
+        self.assertEqual(
+            log.metadata["requested"][
+                "billing_day"
+            ],
+            15,
+        )
+
+        self.assertEqual(
+            log.metadata["requested"][
+                "extended_billing_days"
+            ],
+            3,
+        )
+
+    @patch(
+        "customers.views."
+        "CustomerService.get_customer_details"
+    )
+    @patch(
+        "customers.views."
+        "CustomerService.update_customer_connection"
+    )
+    def test_connection_update_creates_audit_log(
+        self,
+        mock_update_connection,
+        mock_get_customer,
+    ):
+        mock_update_connection.return_value = (
+            self.customer,
+            None,
+        )
+
+        mock_get_customer.return_value = self.customer
+
+        view = CustomerViewSet.as_view(
+            {
+                "post": "update_connection",
+            }
+        )
+
+        request = self._request(
+            "post",
+            (
+                "/customers/AUD-C001/"
+                "update_connection/"
+            ),
+            self.technician,
+            {
+                "profile_name": "10Mbps",
+            },
+        )
+
+        response = view(
+            request,
+            customer_id=self.customer.customer_id,
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        log = AuditLog.objects.get(
+            organization=self.organization,
+            action="customer.connection_updated",
+            resource_id=self.customer.customer_id,
+        )
+
+        self.assertEqual(
+            log.user,
+            self.technician,
+        )
+
+        self.assertEqual(
+            log.actor_role,
+            "technician",
+        )
+
+        self.assertIn(
+            "before",
+            log.metadata,
+        )
+
+        self.assertIn(
+            "after",
+            log.metadata,
+        )
+
+    @patch(
+        "customers.views."
+        "CustomerService.update_customer_status"
+    )
+    def test_status_change_creates_audit_log(
+        self,
+        mock_update_status,
+    ):
+        self.customer.customer_status = (
+            "disconnected"
+        )
+
+        mock_update_status.return_value = (
+            self.customer,
+            None,
+        )
+
+        view = CustomerViewSet.as_view(
+            {
+                "post": "update_status",
+            }
+        )
+
+        request = self._request(
+            "post",
+            (
+                "/customers/AUD-C001/"
+                "update_status/"
+            ),
+            self.billing,
+            {
+                "status": "disconnected",
+            },
+        )
+
+        response = view(
+            request,
+            customer_id=self.customer.customer_id,
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        log = AuditLog.objects.get(
+            organization=self.organization,
+            action="customer.status_changed",
+            resource_id=self.customer.customer_id,
+        )
+
+        self.assertEqual(
+            log.user,
+            self.billing,
+        )
+
+        self.assertEqual(
+            log.metadata["before"],
+            "active",
+        )
+
+        self.assertEqual(
+            log.metadata["after"],
+            "disconnected",
         )
