@@ -25,6 +25,7 @@ services:
         condition: service_healthy
     environment: &backend_env
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY in .env}
+      LINTECH_FIELD_ENCRYPTION_KEY: ${LINTECH_FIELD_ENCRYPTION_KEY:?set LINTECH_FIELD_ENCRYPTION_KEY in .env}
       DJANGO_DEBUG: ${DJANGO_DEBUG:-False}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
       DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost,http://127.0.0.1}

@@ -5,8 +5,14 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from core.pagination import CustomPagination, paginate_list_data
-from organizations.mixins import OrganizationQuerySetMixin
+from auditlog.services import AuditService
+from core.pagination import (
+    CustomPagination,
+    paginate_list_data,
+)
+from organizations.mixins import (
+    OrganizationQuerySetMixin,
+)
 from organizations.permissions import (
     ADMIN_ROLES,
     NETWORK_ROLES,
@@ -19,15 +25,42 @@ from .schemas import mikrotik_router_schema_view
 from .serializers import MikrotikRouterSerializer
 from .service.connection import MikrotikConnection
 from .service.tools import (
-    create_customer,
-    delete_customer,
     get_active_customers,
-    get_check_customer_status,
     get_customers,
     get_profiles,
-    get_specific_customer,
-    toggle_customer_status,
 )
+
+
+def _router_audit_snapshot(router):
+    """
+    Return router information safe for audit storage.
+
+    Passwords and other credentials are intentionally
+    excluded.
+    """
+
+    return {
+        "name": router.name,
+        "host": router.host,
+        "port": router.port,
+        "username": router.username,
+        "use_ssl": getattr(
+            router,
+            "use_ssl",
+            False,
+        ),
+        "status": getattr(
+            router,
+            "status",
+            "",
+        ),
+        "is_active": router.is_active,
+        "description": getattr(
+            router,
+            "description",
+            "",
+        ),
+    }
 
 
 @mikrotik_router_schema_view
@@ -60,9 +93,106 @@ class MikrotikRouterViewSet(
 
     pagination_class = CustomPagination
 
-    @action(detail=True, methods=["post"])
-    def test_connection(self, request, pk=None):
-        """Test connection to the MikroTik router."""
+    def perform_create(
+        self,
+        serializer,
+    ):
+        organization = self.get_organization()
+
+        router = serializer.save(
+            organization=organization
+        )
+
+        AuditService.log(
+            organization=organization,
+            user=self.request.user,
+            request=self.request,
+            action="mikrotik.router_created",
+            resource_type="MikrotikRouter",
+            resource_id=router.pk,
+            description=(
+                f"MikroTik router "
+                f"'{router.name}' created."
+            ),
+            metadata=_router_audit_snapshot(
+                router
+            ),
+        )
+
+    def perform_update(
+        self,
+        serializer,
+    ):
+        router = self.get_object()
+
+        before = _router_audit_snapshot(
+            router
+        )
+
+        router = serializer.save()
+
+        after = _router_audit_snapshot(
+            router
+        )
+
+        AuditService.log(
+            organization=self.get_organization(),
+            user=self.request.user,
+            request=self.request,
+            action="mikrotik.router_updated",
+            resource_type="MikrotikRouter",
+            resource_id=router.pk,
+            description=(
+                f"MikroTik router "
+                f"'{router.name}' updated."
+            ),
+            metadata={
+                "before": before,
+                "after": after,
+            },
+        )
+
+    def perform_destroy(
+        self,
+        instance,
+    ):
+        organization = self.get_organization()
+
+        resource_id = instance.pk
+        router_name = instance.name
+
+        metadata = _router_audit_snapshot(
+            instance
+        )
+
+        instance.delete()
+
+        AuditService.log(
+            organization=organization,
+            user=self.request.user,
+            request=self.request,
+            action="mikrotik.router_deleted",
+            resource_type="MikrotikRouter",
+            resource_id=resource_id,
+            description=(
+                f"MikroTik router "
+                f"'{router_name}' deleted."
+            ),
+            metadata=metadata,
+        )
+
+    @action(
+        detail=True,
+        methods=["post"],
+    )
+    def test_connection(
+        self,
+        request,
+        pk=None,
+    ):
+        """
+        Test connection to the MikroTik router.
+        """
 
         router = self.get_object()
 
@@ -77,6 +207,7 @@ class MikrotikRouterViewSet(
             if conn.api:
                 router.status = "connected"
                 router.last_checked = timezone.now()
+
                 router.save(
                     update_fields=[
                         "status",
@@ -87,11 +218,35 @@ class MikrotikRouterViewSet(
 
                 info = conn.get_router_info()
 
+                AuditService.log(
+                    organization=self.get_organization(),
+                    user=request.user,
+                    request=request,
+                    action=(
+                        "mikrotik.connection_test_succeeded"
+                    ),
+                    resource_type="MikrotikRouter",
+                    resource_id=router.pk,
+                    description=(
+                        f"Connection test succeeded "
+                        f"for router '{router.name}'."
+                    ),
+                    metadata={
+                        "router": (
+                            _router_audit_snapshot(
+                                router
+                            )
+                        ),
+                        "result": "success",
+                    },
+                )
+
                 return Response(
                     {
                         "status": "success",
                         "message": (
-                            "Successfully connected to router"
+                            "Successfully connected "
+                            "to router"
                         ),
                         "router_info": info,
                     }
@@ -99,12 +254,36 @@ class MikrotikRouterViewSet(
 
             router.status = "error"
             router.last_checked = timezone.now()
+
             router.save(
                 update_fields=[
                     "status",
                     "last_checked",
                     "updated_at",
                 ]
+            )
+
+            AuditService.log(
+                organization=self.get_organization(),
+                user=request.user,
+                request=request,
+                action=(
+                    "mikrotik.connection_test_failed"
+                ),
+                resource_type="MikrotikRouter",
+                resource_id=router.pk,
+                description=(
+                    f"Connection test failed "
+                    f"for router '{router.name}'."
+                ),
+                metadata={
+                    "router": (
+                        _router_audit_snapshot(
+                            router
+                        )
+                    ),
+                    "result": "failed",
+                },
             )
 
             return Response(
@@ -120,12 +299,39 @@ class MikrotikRouterViewSet(
         except Exception as exc:
             router.status = "error"
             router.last_checked = timezone.now()
+
             router.save(
                 update_fields=[
                     "status",
                     "last_checked",
                     "updated_at",
                 ]
+            )
+
+            AuditService.log(
+                organization=self.get_organization(),
+                user=request.user,
+                request=request,
+                action=(
+                    "mikrotik.connection_test_failed"
+                ),
+                resource_type="MikrotikRouter",
+                resource_id=router.pk,
+                description=(
+                    f"Connection test failed "
+                    f"for router '{router.name}'."
+                ),
+                metadata={
+                    "router": (
+                        _router_audit_snapshot(
+                            router
+                        )
+                    ),
+                    "result": "failed",
+                    "error_type": (
+                        exc.__class__.__name__
+                    ),
+                },
             )
 
             return Response(
@@ -136,9 +342,18 @@ class MikrotikRouterViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-    @action(detail=True, methods=["get"])
-    def pppoe_customers(self, request, pk=None):
-        """Get all PPPoE secrets from the router."""
+    @action(
+        detail=True,
+        methods=["get"],
+    )
+    def pppoe_customers(
+        self,
+        request,
+        pk=None,
+    ):
+        """
+        Get all PPPoE secrets from the router.
+        """
 
         router = self.get_object()
 
@@ -150,7 +365,9 @@ class MikrotikRouterViewSet(
                 password=router.password,
             )
 
-            result = get_customers(conn.api)
+            result = get_customers(
+                conn.api
+            )
 
             if result.get("status") == "Success":
                 paginated = paginate_list_data(
@@ -175,7 +392,9 @@ class MikrotikRouterViewSet(
                     paginated_response
                 )
 
-            return Response(result)
+            return Response(
+                result
+            )
 
         except Exception as exc:
             return Response(
@@ -186,8 +405,15 @@ class MikrotikRouterViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-    @action(detail=True, methods=["get"])
-    def active_sessions(self, request, pk=None):
+    @action(
+        detail=True,
+        methods=["get"],
+    )
+    def active_sessions(
+        self,
+        request,
+        pk=None,
+    ):
         """
         Get currently active PPPoE sessions.
         """
@@ -229,7 +455,9 @@ class MikrotikRouterViewSet(
                     paginated_response
                 )
 
-            return Response(result)
+            return Response(
+                result
+            )
 
         except Exception as exc:
             return Response(
@@ -240,8 +468,15 @@ class MikrotikRouterViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-    @action(detail=True, methods=["get"])
-    def get_profiles(self, request, pk=None):
+    @action(
+        detail=True,
+        methods=["get"],
+    )
+    def get_profiles(
+        self,
+        request,
+        pk=None,
+    ):
         """
         Get PPPoE profile names configured
         on this router.
@@ -257,7 +492,9 @@ class MikrotikRouterViewSet(
                 password=router.password,
             )
 
-            result = get_profiles(conn.api)
+            result = get_profiles(
+                conn.api
+            )
 
             if (
                 result.get("status") == "Found"
@@ -280,7 +517,9 @@ class MikrotikRouterViewSet(
                     }
                 )
 
-            return Response(result)
+            return Response(
+                result
+            )
 
         except Exception as exc:
             return Response(

@@ -1,5 +1,6 @@
 from django.db import models
 
+from core.fields import EncryptedTextField
 from customers.models import CustomerProfile, MetaInfo
 
 
@@ -107,8 +108,7 @@ class OltDevice(MetaInfo):
         default="",
     )
 
-    telnet_password = models.CharField(
-        max_length=255,
+    telnet_password = EncryptedTextField(
         blank=True,
         default="",
     )
@@ -117,8 +117,7 @@ class OltDevice(MetaInfo):
         default=161,
     )
 
-    snmp_community = models.CharField(
-        max_length=100,
+    snmp_community = EncryptedTextField(
         default="public",
     )
 
@@ -160,20 +159,32 @@ class OltDevice(MetaInfo):
                     "host",
                     "telnet_port",
                 ],
-                name="unique_olt_endpoint_per_organization",
+                name=(
+                    "unique_olt_endpoint_"
+                    "per_organization"
+                ),
             )
         ]
 
-    def save(self, *args, **kwargs):
-        self.vendor, self.pon_type = OLT_TYPE_MAP.get(
-            self.olt_type,
-            ("generic", "epon"),
+    def save(
+        self,
+        *args,
+        **kwargs,
+    ):
+        self.vendor, self.pon_type = (
+            OLT_TYPE_MAP.get(
+                self.olt_type,
+                ("generic", "epon"),
+            )
         )
 
         if not self.name:
             self.name = self.host
 
-        super().save(*args, **kwargs)
+        super().save(
+            *args,
+            **kwargs,
+        )
 
     def __str__(self):
         return (
@@ -200,7 +211,9 @@ class Onu(MetaInfo):
         max_length=50,
         blank=True,
         default="",
-        help_text="SNMP index / internal ONU id",
+        help_text=(
+            "SNMP index / internal ONU id"
+        ),
     )
 
     serial_number = models.CharField(
@@ -295,7 +308,9 @@ class Onu(MetaInfo):
                     "olt",
                     "onu_index",
                 ],
-                name="unique_onu_index_per_olt",
+                name=(
+                    "unique_onu_index_per_olt"
+                ),
             )
         ]
 

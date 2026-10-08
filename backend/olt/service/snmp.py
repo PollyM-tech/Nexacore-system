@@ -112,16 +112,23 @@ def diagnostic_message(olt, snmp: "OltSnmp") -> str:
     """Actionable explanation shown when an OLT does not answer SNMP."""
     if not snmp.available:
         return "SNMP client library is not installed on the server."
-    detail = f" Last error: {snmp.last_error}." if snmp.last_error else ""
+
+    detail = (
+        f" Last error: {snmp.last_error}."
+        if snmp.last_error
+        else ""
+    )
+
     return (
-        f"No SNMP reply from {olt.host}:{olt.snmp_port} using community "
-        f"'{olt.snmp_community}' (tried v2c and v1, {snmp.timeout}s timeout).{detail} "
+        f"No SNMP reply from {olt.host}:{olt.snmp_port} "
+        f"(tried v2c and v1, {snmp.timeout}s timeout).{detail} "
         "Checklist — (1) Enable SNMP on the OLT, e.g. BDCOM: "
         "'snmp-server community <name> ro' and "
         "'snmp-server host <this-server-ip> version 2c <name>'. "
-        "(2) The community name must match exactly (case-sensitive). "
-        "(3) UDP port 161 must be reachable end-to-end — check ACLs, firewall and NAT, "
-        "and confirm the host/IP is correct. "
-        "(4) BDCOM/VSOL CPUs answer SNMP slowly; increase the device Timeout if the OLT "
-        "has many ONUs."
+        "(2) The configured community name must match exactly "
+        "(case-sensitive). "
+        "(3) UDP port 161 must be reachable end-to-end — check ACLs, "
+        "firewall and NAT, and confirm the host/IP is correct. "
+        "(4) BDCOM/VSOL CPUs answer SNMP slowly; increase the device "
+        "Timeout if the OLT has many ONUs."
     )

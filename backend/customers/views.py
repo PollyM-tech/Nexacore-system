@@ -4,6 +4,7 @@ from django.core.cache import cache
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -1220,10 +1221,13 @@ class AdminSupportTicketViewSet(
         "priority",
     ]
 
-    def get_queryset(self):
-        organization = get_user_organization(
+    def get_organization(self):
+        return get_user_organization(
             self.request.user
         )
+
+    def get_queryset(self):
+        organization = self.get_organization()
 
         return (
             SupportTicket.objects
@@ -1245,6 +1249,148 @@ class AdminSupportTicketViewSet(
 
         return AdminSupportTicketSerializer
 
+    def _validate_customer_organization(
+        self,
+        customer,
+    ):
+        organization = self.get_organization()
+
+        if (
+            customer.organization_id
+            != organization.id
+        ):
+            raise ValidationError(
+                {
+                    "customer": (
+                        "The selected customer does "
+                        "not belong to your organization."
+                    )
+                }
+            )
+
+        return organization
+
+    def perform_create(
+        self,
+        serializer,
+    ):
+        customer = serializer.validated_data[
+            "customer"
+        ]
+
+        organization = (
+            self._validate_customer_organization(
+                customer
+            )
+        )
+
+        ticket = serializer.save()
+
+        AuditService.log(
+            organization=organization,
+            user=self.request.user,
+            request=self.request,
+            action="support.ticket_created",
+            resource_type="SupportTicket",
+            resource_id=ticket.pk,
+            description=(
+                f"Support ticket #{ticket.pk} created."
+            ),
+            metadata={
+                "ticket_id": ticket.pk,
+                "customer_id": (
+                    ticket.customer.customer_id
+                ),
+                "status": ticket.status,
+                "priority": ticket.priority,
+            },
+        )
+
+    def perform_update(
+        self,
+        serializer,
+    ):
+        organization = self.get_organization()
+
+        ticket = self.get_object()
+
+        before = {
+            "customer_id": (
+                ticket.customer.customer_id
+            ),
+            "status": ticket.status,
+            "priority": ticket.priority,
+        }
+
+        customer = (
+            serializer.validated_data.get(
+                "customer",
+                ticket.customer,
+            )
+        )
+
+        self._validate_customer_organization(
+            customer
+        )
+
+        ticket = serializer.save()
+
+        after = {
+            "customer_id": (
+                ticket.customer.customer_id
+            ),
+            "status": ticket.status,
+            "priority": ticket.priority,
+        }
+
+        AuditService.log(
+            organization=organization,
+            user=self.request.user,
+            request=self.request,
+            action="support.ticket_updated",
+            resource_type="SupportTicket",
+            resource_id=ticket.pk,
+            description=(
+                f"Support ticket #{ticket.pk} updated."
+            ),
+            metadata={
+                "before": before,
+                "after": after,
+            },
+        )
+
+    def perform_destroy(
+        self,
+        instance,
+    ):
+        organization = self.get_organization()
+
+        ticket_id = instance.pk
+
+        metadata = {
+            "ticket_id": ticket_id,
+            "customer_id": (
+                instance.customer.customer_id
+            ),
+            "status": instance.status,
+            "priority": instance.priority,
+        }
+
+        instance.delete()
+
+        AuditService.log(
+            organization=organization,
+            user=self.request.user,
+            request=self.request,
+            action="support.ticket_deleted",
+            resource_type="SupportTicket",
+            resource_id=ticket_id,
+            description=(
+                f"Support ticket #{ticket_id} deleted."
+            ),
+            metadata=metadata,
+        )
+
     @action(
         detail=True,
         methods=["post"],
@@ -1254,6 +1400,8 @@ class AdminSupportTicketViewSet(
         request,
         pk=None,
     ):
+        organization = self.get_organization()
+
         ticket = self.get_object()
 
         reply_text = request.data.get(
@@ -1271,6 +1419,8 @@ class AdminSupportTicketViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        previous_status = ticket.status
+
         reply = TicketReply.objects.create(
             ticket=ticket,
             admin_user=request.user,
@@ -1286,6 +1436,29 @@ class AdminSupportTicketViewSet(
                     "updated_at",
                 ]
             )
+
+        AuditService.log(
+            organization=organization,
+            user=request.user,
+            request=request,
+            action="support.ticket_reply_added",
+            resource_type="SupportTicket",
+            resource_id=ticket.pk,
+            description=(
+                f"Staff reply added to support "
+                f"ticket #{ticket.pk}."
+            ),
+            metadata={
+                "ticket_id": ticket.pk,
+                "reply_id": reply.pk,
+                "customer_id": (
+                    ticket.customer.customer_id
+                ),
+                "status_before": previous_status,
+                "status_after": ticket.status,
+                "author_type": "staff",
+            },
+        )
 
         serializer = TicketReplySerializer(
             reply

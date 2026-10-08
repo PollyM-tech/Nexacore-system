@@ -20,6 +20,11 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure--oo1r06g+*oo*)
 
 DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True'
 
+LINTECH_FIELD_ENCRYPTION_KEY = os.environ.get(
+    "LINTECH_FIELD_ENCRYPTION_KEY",
+    "",
+)
+
 ALLOWED_HOSTS = [h.strip() for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '*').split(',') if h.strip()]
 
 CSRF_TRUSTED_ORIGINS = [

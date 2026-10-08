@@ -12,6 +12,7 @@ from rest_framework.permissions import (
 )
 from rest_framework.response import Response
 
+from auditlog.services import AuditService
 from organizations.mixins import (
     OrganizationQuerySetMixin,
 )
@@ -48,6 +49,40 @@ SMS_SEND_ROLES = (
 )
 
 
+def _gateway_audit_snapshot(
+    gateway,
+):
+    """
+    Return safe gateway configuration for audit
+    storage.
+
+    Credentials and API secrets are intentionally
+    excluded.
+    """
+
+    return {
+        "label": gateway.label,
+        "provider": gateway.provider,
+        "sender_id": gateway.sender_id,
+        "is_active": gateway.is_active,
+        "is_default": gateway.is_default,
+    }
+
+
+def _template_audit_snapshot(
+    template,
+):
+    """
+    Store template metadata without duplicating
+    SMS body content into the audit history.
+    """
+
+    return {
+        "name": template.name,
+        "category": template.category,
+    }
+
+
 class SmsGatewayViewSet(
     OrganizationQuerySetMixin,
     viewsets.ModelViewSet,
@@ -64,22 +99,105 @@ class SmsGatewayViewSet(
     ]
 
     role_permissions = {
-        # Staff may inspect configured gateways.
         "list": READ_ONLY_ROLES,
         "retrieve": READ_ONLY_ROLES,
 
-        # Gateway credentials/configuration are
-        # administrative infrastructure settings.
         "create": ADMIN_ROLES,
         "update": ADMIN_ROLES,
         "partial_update": ADMIN_ROLES,
         "destroy": ADMIN_ROLES,
 
-        # Changing the default gateway and sending
-        # gateway tests are also admin-only.
         "set_default": ADMIN_ROLES,
         "test": ADMIN_ROLES,
     }
+
+    def perform_create(
+        self,
+        serializer,
+    ):
+        organization = self.get_organization()
+
+        gateway = serializer.save(
+            organization=organization
+        )
+
+        AuditService.log(
+            organization=organization,
+            user=self.request.user,
+            request=self.request,
+            action="sms.gateway_created",
+            resource_type="SmsGateway",
+            resource_id=gateway.pk,
+            description=(
+                f"SMS gateway "
+                f"'{gateway.label}' created."
+            ),
+            metadata=_gateway_audit_snapshot(
+                gateway
+            ),
+        )
+
+    def perform_update(
+        self,
+        serializer,
+    ):
+        gateway = self.get_object()
+
+        before = _gateway_audit_snapshot(
+            gateway
+        )
+
+        gateway = serializer.save()
+
+        after = _gateway_audit_snapshot(
+            gateway
+        )
+
+        AuditService.log(
+            organization=self.get_organization(),
+            user=self.request.user,
+            request=self.request,
+            action="sms.gateway_updated",
+            resource_type="SmsGateway",
+            resource_id=gateway.pk,
+            description=(
+                f"SMS gateway "
+                f"'{gateway.label}' updated."
+            ),
+            metadata={
+                "before": before,
+                "after": after,
+            },
+        )
+
+    def perform_destroy(
+        self,
+        instance,
+    ):
+        organization = self.get_organization()
+
+        resource_id = instance.pk
+        gateway_label = instance.label
+
+        metadata = _gateway_audit_snapshot(
+            instance
+        )
+
+        instance.delete()
+
+        AuditService.log(
+            organization=organization,
+            user=self.request.user,
+            request=self.request,
+            action="sms.gateway_deleted",
+            resource_type="SmsGateway",
+            resource_id=resource_id,
+            description=(
+                f"SMS gateway "
+                f"'{gateway_label}' deleted."
+            ),
+            metadata=metadata,
+        )
 
     @action(
         detail=True,
@@ -92,10 +210,35 @@ class SmsGatewayViewSet(
     ):
         gateway = self.get_object()
 
+        before = _gateway_audit_snapshot(
+            gateway
+        )
+
         gateway.is_default = True
         gateway.is_active = True
 
         gateway.save()
+
+        AuditService.log(
+            organization=self.get_organization(),
+            user=request.user,
+            request=request,
+            action="sms.gateway_set_default",
+            resource_type="SmsGateway",
+            resource_id=gateway.pk,
+            description=(
+                f"SMS gateway "
+                f"'{gateway.label}' set as default."
+            ),
+            metadata={
+                "before": before,
+                "after": (
+                    _gateway_audit_snapshot(
+                        gateway
+                    )
+                ),
+            },
+        )
 
         return Response(
             self.get_serializer(
@@ -150,13 +293,49 @@ class SmsGatewayViewSet(
             user=request.user,
         )
 
+        test_succeeded = (
+            log.status == "sent"
+        )
+
+        AuditService.log(
+            organization=organization,
+            user=request.user,
+            request=request,
+            action=(
+                "sms.gateway_test_succeeded"
+                if test_succeeded
+                else
+                "sms.gateway_test_failed"
+            ),
+            resource_type="SmsGateway",
+            resource_id=gateway.pk,
+            description=(
+                f"SMS gateway test "
+                f"{'succeeded' if test_succeeded else 'failed'} "
+                f"for '{gateway.label}'."
+            ),
+            metadata={
+                "gateway": (
+                    _gateway_audit_snapshot(
+                        gateway
+                    )
+                ),
+                "result": (
+                    "success"
+                    if test_succeeded
+                    else "failed"
+                ),
+                "sms_log_id": log.pk,
+            },
+        )
+
         return Response(
             SmsLogSerializer(
                 log
             ).data,
             status=(
                 status.HTTP_200_OK
-                if log.status == "sent"
+                if test_succeeded
                 else
                 status.HTTP_502_BAD_GATEWAY
             ),
@@ -179,12 +358,9 @@ class SmsTemplateViewSet(
     ]
 
     role_permissions = {
-        # All staff can view templates.
         "list": READ_ONLY_ROLES,
         "retrieve": READ_ONLY_ROLES,
 
-        # Billing staff often maintain payment,
-        # reminder and account-notice templates.
         "create": BILLING_ROLES,
         "update": BILLING_ROLES,
         "partial_update": BILLING_ROLES,
@@ -204,6 +380,94 @@ class SmsTemplateViewSet(
         "name",
         "body",
     ]
+
+    def perform_create(
+        self,
+        serializer,
+    ):
+        organization = self.get_organization()
+
+        template = serializer.save(
+            organization=organization
+        )
+
+        AuditService.log(
+            organization=organization,
+            user=self.request.user,
+            request=self.request,
+            action="sms.template_created",
+            resource_type="SmsTemplate",
+            resource_id=template.pk,
+            description=(
+                f"SMS template "
+                f"'{template.name}' created."
+            ),
+            metadata=_template_audit_snapshot(
+                template
+            ),
+        )
+
+    def perform_update(
+        self,
+        serializer,
+    ):
+        template = self.get_object()
+
+        before = _template_audit_snapshot(
+            template
+        )
+
+        template = serializer.save()
+
+        after = _template_audit_snapshot(
+            template
+        )
+
+        AuditService.log(
+            organization=self.get_organization(),
+            user=self.request.user,
+            request=self.request,
+            action="sms.template_updated",
+            resource_type="SmsTemplate",
+            resource_id=template.pk,
+            description=(
+                f"SMS template "
+                f"'{template.name}' updated."
+            ),
+            metadata={
+                "before": before,
+                "after": after,
+            },
+        )
+
+    def perform_destroy(
+        self,
+        instance,
+    ):
+        organization = self.get_organization()
+
+        resource_id = instance.pk
+        template_name = instance.name
+
+        metadata = _template_audit_snapshot(
+            instance
+        )
+
+        instance.delete()
+
+        AuditService.log(
+            organization=organization,
+            user=self.request.user,
+            request=self.request,
+            action="sms.template_deleted",
+            resource_type="SmsTemplate",
+            resource_id=resource_id,
+            description=(
+                f"SMS template "
+                f"'{template_name}' deleted."
+            ),
+            metadata=metadata,
+        )
 
 
 class SmsLogViewSet(
@@ -259,12 +523,7 @@ class SmsSendViewSet(
     ]
 
     role_permissions = {
-        # Provider metadata is safe for staff
-        # to inspect.
         "providers": READ_ONLY_ROLES,
-
-        # Owner/admin/billing/support may send.
-        # Technician and viewer may not.
         "send": SMS_SEND_ROLES,
     }
 
@@ -365,6 +624,59 @@ class SmsSendViewSet(
             ],
             gateway=gateway,
             user=request.user,
+        )
+
+        AuditService.log(
+            organization=organization,
+            user=request.user,
+            request=request,
+            action="sms.bulk_send",
+            resource_type="SmsLog",
+            resource_id="bulk",
+            description=(
+                f"Bulk SMS send requested for "
+                f"{len(recipients)} recipient(s)."
+            ),
+            metadata={
+                "audience": data["audience"],
+                "recipient_count": len(
+                    recipients
+                ),
+                "gateway_id": (
+                    gateway.pk
+                    if gateway
+                    else None
+                ),
+                "gateway_provider": (
+                    gateway.provider
+                    if gateway
+                    else None
+                ),
+                "result_status": (
+                    result.get("status")
+                    if isinstance(
+                        result,
+                        dict,
+                    )
+                    else None
+                ),
+                "sent": (
+                    result.get("sent")
+                    if isinstance(
+                        result,
+                        dict,
+                    )
+                    else None
+                ),
+                "failed": (
+                    result.get("failed")
+                    if isinstance(
+                        result,
+                        dict,
+                    )
+                    else None
+                ),
+            },
         )
 
         return Response(

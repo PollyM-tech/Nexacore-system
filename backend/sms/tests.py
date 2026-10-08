@@ -7,7 +7,7 @@ from rest_framework.test import (
     APIRequestFactory,
     force_authenticate,
 )
-
+from auditlog.models import AuditLog
 from customers.models import (
     AddressZone,
     CustomerProfile,
@@ -874,3 +874,541 @@ class SmsRolePermissionTests(TestCase):
 
         mock_resolve_recipients.assert_not_called()
         mock_send_bulk.assert_not_called()
+
+
+class SmsAuditLogTests(TestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+
+        self.organization = Organization.objects.create(
+            name="SMS Audit ISP",
+            slug="sms-audit-isp",
+            organization_type="hybrid",
+            status="active",
+            is_active=True,
+        )
+
+        self.gateway = SmsGateway.objects.create(
+            organization=self.organization,
+            provider="africastalking",
+            label="Audit Gateway",
+            sender_id="LINTECH",
+            credentials={
+                "username": "sandbox",
+                "api_key": "private-api-key",
+            },
+            is_active=True,
+            is_default=False,
+        )
+
+        self.template = SmsTemplate.objects.create(
+            organization=self.organization,
+            name="Audit Template",
+            category="payment",
+            body="Private template body.",
+        )
+
+        self.owner = self._create_user(
+            "sms_audit_owner",
+            "owner",
+        )
+
+        self.billing = self._create_user(
+            "sms_audit_billing",
+            "billing",
+        )
+
+        self.support = self._create_user(
+            "sms_audit_support",
+            "support",
+        )
+
+    def _create_user(
+        self,
+        username,
+        role,
+    ):
+        user = User.objects.create_user(
+            username=username,
+            password="testpass123",
+        )
+
+        OrganizationMembership.objects.create(
+            organization=self.organization,
+            user=user,
+            role=role,
+            is_active=True,
+        )
+
+        return user
+
+    def _request(
+        self,
+        method,
+        path,
+        user,
+        data=None,
+    ):
+        method_func = getattr(
+            self.factory,
+            method.lower(),
+        )
+
+        request = method_func(
+            path,
+            data=data or {},
+            format="json",
+        )
+
+        force_authenticate(
+            request,
+            user=user,
+        )
+
+        return request
+
+    def test_gateway_creation_creates_safe_audit_log(
+        self,
+    ):
+        view = SmsGatewayViewSet.as_view(
+            {
+                "post": "create",
+            }
+        )
+
+        request = self._request(
+            "post",
+            "/sms/gateways/",
+            self.owner,
+            {
+                "provider": "africastalking",
+                "label": "New Audit Gateway",
+                "sender_id": "NEWSMS",
+                "credentials": {
+                    "username": "sandbox",
+                    "api_key": "never-store-this",
+                },
+                "is_active": True,
+                "is_default": False,
+            },
+        )
+
+        response = view(request)
+
+        self.assertEqual(
+            response.status_code,
+            201,
+        )
+
+        gateway = SmsGateway.objects.get(
+            organization=self.organization,
+            label="New Audit Gateway",
+        )
+
+        log = AuditLog.objects.get(
+            organization=self.organization,
+            action="sms.gateway_created",
+            resource_id=str(gateway.pk),
+        )
+
+        self.assertEqual(
+            log.user,
+            self.owner,
+        )
+
+        self.assertEqual(
+            log.metadata["provider"],
+            "africastalking",
+        )
+
+        self.assertNotIn(
+            "credentials",
+            log.metadata,
+        )
+
+        self.assertNotIn(
+            "api_key",
+            log.metadata,
+        )
+
+    def test_gateway_update_creates_audit_log(
+        self,
+    ):
+        view = SmsGatewayViewSet.as_view(
+            {
+                "patch": "partial_update",
+            }
+        )
+
+        request = self._request(
+            "patch",
+            (
+                f"/sms/gateways/"
+                f"{self.gateway.pk}/"
+            ),
+            self.owner,
+            {
+                "label": "Updated Gateway",
+            },
+        )
+
+        response = view(
+            request,
+            pk=self.gateway.pk,
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        log = AuditLog.objects.get(
+            organization=self.organization,
+            action="sms.gateway_updated",
+            resource_id=str(self.gateway.pk),
+        )
+
+        self.assertEqual(
+            log.metadata["before"][
+                "label"
+            ],
+            "Audit Gateway",
+        )
+
+        self.assertEqual(
+            log.metadata["after"][
+                "label"
+            ],
+            "Updated Gateway",
+        )
+
+        self.assertNotIn(
+            "credentials",
+            log.metadata["before"],
+        )
+
+    def test_set_default_creates_audit_log(
+        self,
+    ):
+        view = SmsGatewayViewSet.as_view(
+            {
+                "post": "set_default",
+            }
+        )
+
+        request = self._request(
+            "post",
+            (
+                f"/sms/gateways/"
+                f"{self.gateway.pk}/set_default/"
+            ),
+            self.owner,
+        )
+
+        response = view(
+            request,
+            pk=self.gateway.pk,
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        log = AuditLog.objects.get(
+            organization=self.organization,
+            action="sms.gateway_set_default",
+            resource_id=str(self.gateway.pk),
+        )
+
+        self.assertFalse(
+            log.metadata["before"][
+                "is_default"
+            ]
+        )
+
+        self.assertTrue(
+            log.metadata["after"][
+                "is_default"
+            ]
+        )
+
+    @patch(
+        "sms.views.SmsService.send_one"
+    )
+    def test_gateway_test_creates_safe_audit_log(
+        self,
+        mock_send_one,
+    ):
+        sms_log = SmsLog.objects.create(
+            organization=self.organization,
+            mobile="0712345678",
+            message="Sensitive gateway test.",
+            provider="africastalking",
+            status="sent",
+            sent_by=self.owner,
+        )
+
+        mock_send_one.return_value = sms_log
+
+        view = SmsGatewayViewSet.as_view(
+            {
+                "post": "test",
+            }
+        )
+
+        request = self._request(
+            "post",
+            (
+                f"/sms/gateways/"
+                f"{self.gateway.pk}/test/"
+            ),
+            self.owner,
+            {
+                "mobile": "0712345678",
+                "message": (
+                    "Sensitive gateway test."
+                ),
+            },
+        )
+
+        response = view(
+            request,
+            pk=self.gateway.pk,
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        log = AuditLog.objects.get(
+            organization=self.organization,
+            action=(
+                "sms.gateway_test_succeeded"
+            ),
+            resource_id=str(self.gateway.pk),
+        )
+
+        self.assertEqual(
+            log.metadata["result"],
+            "success",
+        )
+
+        self.assertNotIn(
+            "mobile",
+            log.metadata,
+        )
+
+        self.assertNotIn(
+            "message",
+            log.metadata,
+        )
+
+        self.assertNotIn(
+            "credentials",
+            log.metadata["gateway"],
+        )
+
+    def test_template_creation_creates_safe_audit_log(
+        self,
+    ):
+        view = SmsTemplateViewSet.as_view(
+            {
+                "post": "create",
+            }
+        )
+
+        request = self._request(
+            "post",
+            "/sms/templates/",
+            self.billing,
+            {
+                "name": "New Payment Reminder",
+                "category": "payment",
+                "body": (
+                    "Your private account "
+                    "message content."
+                ),
+            },
+        )
+
+        response = view(request)
+
+        self.assertEqual(
+            response.status_code,
+            201,
+        )
+
+        template = SmsTemplate.objects.get(
+            organization=self.organization,
+            name="New Payment Reminder",
+        )
+
+        log = AuditLog.objects.get(
+            organization=self.organization,
+            action="sms.template_created",
+            resource_id=str(template.pk),
+        )
+
+        self.assertEqual(
+            log.user,
+            self.billing,
+        )
+
+        self.assertEqual(
+            log.metadata["name"],
+            "New Payment Reminder",
+        )
+
+        self.assertNotIn(
+            "body",
+            log.metadata,
+        )
+
+    @patch(
+        "sms.views.SmsService.send_bulk"
+    )
+    @patch(
+        "sms.views.resolve_recipients"
+    )
+    def test_bulk_send_creates_safe_audit_log(
+        self,
+        mock_resolve_recipients,
+        mock_send_bulk,
+    ):
+        mock_resolve_recipients.return_value = [
+            (
+                "0711111111",
+                None,
+            ),
+            (
+                "0722222222",
+                None,
+            ),
+        ]
+
+        mock_send_bulk.return_value = {
+            "status": "success",
+            "sent": 2,
+            "failed": 0,
+        }
+
+        view = SmsSendViewSet.as_view(
+            {
+                "post": "send",
+            }
+        )
+
+        request = self._request(
+            "post",
+            "/sms/send/",
+            self.support,
+            {
+                "audience": "active",
+                "message": (
+                    "Sensitive bulk SMS body."
+                ),
+                "gateway": self.gateway.pk,
+            },
+        )
+
+        response = view(request)
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        log = AuditLog.objects.get(
+            organization=self.organization,
+            action="sms.bulk_send",
+        )
+
+        self.assertEqual(
+            log.user,
+            self.support,
+        )
+
+        self.assertEqual(
+            log.actor_role,
+            "support",
+        )
+
+        self.assertEqual(
+            log.metadata[
+                "recipient_count"
+            ],
+            2,
+        )
+
+        self.assertEqual(
+            log.metadata["sent"],
+            2,
+        )
+
+        self.assertEqual(
+            log.metadata["failed"],
+            0,
+        )
+
+        self.assertEqual(
+            log.metadata["gateway_id"],
+            self.gateway.pk,
+        )
+
+        self.assertNotIn(
+            "message",
+            log.metadata,
+        )
+
+        self.assertNotIn(
+            "recipients",
+            log.metadata,
+        )
+
+    def test_template_delete_creates_audit_log(
+        self,
+    ):
+        view = SmsTemplateViewSet.as_view(
+            {
+                "delete": "destroy",
+            }
+        )
+
+        template_id = self.template.pk
+
+        request = self._request(
+            "delete",
+            (
+                f"/sms/templates/"
+                f"{template_id}/"
+            ),
+            self.billing,
+        )
+
+        response = view(
+            request,
+            pk=template_id,
+        )
+
+        self.assertEqual(
+            response.status_code,
+            204,
+        )
+
+        log = AuditLog.objects.get(
+            organization=self.organization,
+            action="sms.template_deleted",
+            resource_id=str(template_id),
+        )
+
+        self.assertEqual(
+            log.metadata["name"],
+            "Audit Template",
+        )
+
+        self.assertNotIn(
+            "body",
+            log.metadata,
+        )

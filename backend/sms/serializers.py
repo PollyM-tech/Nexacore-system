@@ -10,6 +10,11 @@ from .models import (
 class SmsGatewaySerializer(
     serializers.ModelSerializer
 ):
+    credentials = serializers.JSONField(
+        write_only=True,
+        required=False,
+    )
+
     class Meta:
         model = SmsGateway
 
@@ -28,13 +33,6 @@ class SmsGatewaySerializer(
             "id",
             "created_at",
         ]
-
-        extra_kwargs = {
-            "credentials": {
-                "write_only": True,
-                "required": False,
-            }
-        }
 
 
 class SmsTemplateSerializer(

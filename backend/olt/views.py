@@ -6,6 +6,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from auditlog.services import AuditService
 from organizations.mixins import OrganizationQuerySetMixin
 from organizations.permissions import (
     ADMIN_ROLES,
@@ -27,6 +28,50 @@ from .service.snmp import (
 from .service.sync import sync_onus
 
 
+def _olt_audit_snapshot(olt):
+    """
+    Safe OLT metadata for audit storage.
+
+    Credentials and SNMP community values are
+    intentionally excluded.
+    """
+
+    return {
+        "name": olt.name,
+        "host": olt.host,
+        "telnet_port": olt.telnet_port,
+        "web_port": olt.web_port,
+        "protocol": olt.protocol,
+        "olt_type": olt.olt_type,
+        "snmp_port": olt.snmp_port,
+        "timeout": olt.timeout,
+        "status": olt.status,
+        "description": olt.description,
+        "is_active": olt.is_active,
+    }
+
+
+def _onu_audit_snapshot(onu):
+    """
+    Safe ONU metadata for audit storage.
+    """
+
+    return {
+        "olt_id": onu.olt_id,
+        "onu_index": onu.onu_index,
+        "serial_number": getattr(
+            onu,
+            "serial_number",
+            "",
+        ),
+        "name": onu.name,
+        "pon_port": onu.pon_port,
+        "status": onu.status,
+        "customer_id": onu.customer_id,
+        "description": onu.description,
+    }
+
+
 class OltDeviceViewSet(
     OrganizationQuerySetMixin,
     viewsets.ModelViewSet,
@@ -40,21 +85,16 @@ class OltDeviceViewSet(
     ]
 
     role_permissions = {
-        # All organization staff may inspect OLTs.
         "list": READ_ONLY_ROLES,
         "retrieve": READ_ONLY_ROLES,
         "onus": READ_ONLY_ROLES,
 
-        # Network infrastructure management.
         "create": NETWORK_ROLES,
         "update": NETWORK_ROLES,
         "partial_update": NETWORK_ROLES,
 
-        # Destructive infrastructure operations
-        # remain owner/admin only.
         "destroy": ADMIN_ROLES,
 
-        # Operational network actions.
         "test_connection": NETWORK_ROLES,
         "sync_onus": NETWORK_ROLES,
     }
@@ -74,6 +114,90 @@ class OltDeviceViewSet(
         "name",
         "host",
     ]
+
+    def perform_create(
+        self,
+        serializer,
+    ):
+        organization = self.get_organization()
+
+        olt = serializer.save(
+            organization=organization
+        )
+
+        AuditService.log(
+            organization=organization,
+            user=self.request.user,
+            request=self.request,
+            action="olt.device_created",
+            resource_type="OltDevice",
+            resource_id=olt.pk,
+            description=(
+                f"OLT '{olt.name}' created."
+            ),
+            metadata=_olt_audit_snapshot(
+                olt
+            ),
+        )
+
+    def perform_update(
+        self,
+        serializer,
+    ):
+        olt = self.get_object()
+
+        before = _olt_audit_snapshot(
+            olt
+        )
+
+        olt = serializer.save()
+
+        after = _olt_audit_snapshot(
+            olt
+        )
+
+        AuditService.log(
+            organization=self.get_organization(),
+            user=self.request.user,
+            request=self.request,
+            action="olt.device_updated",
+            resource_type="OltDevice",
+            resource_id=olt.pk,
+            description=(
+                f"OLT '{olt.name}' updated."
+            ),
+            metadata={
+                "before": before,
+                "after": after,
+            },
+        )
+
+    def perform_destroy(
+        self,
+        instance,
+    ):
+        organization = self.get_organization()
+
+        resource_id = instance.pk
+        olt_name = instance.name
+        metadata = _olt_audit_snapshot(
+            instance
+        )
+
+        instance.delete()
+
+        AuditService.log(
+            organization=organization,
+            user=self.request.user,
+            request=self.request,
+            action="olt.device_deleted",
+            resource_type="OltDevice",
+            resource_id=resource_id,
+            description=(
+                f"OLT '{olt_name}' deleted."
+            ),
+            metadata=metadata,
+        )
 
     @action(
         detail=True,
@@ -112,16 +236,56 @@ class OltDeviceViewSet(
         )
 
         if not info:
+            message = diagnostic_message(
+                olt,
+                snmp,
+            )
+
+            AuditService.log(
+                organization=self.get_organization(),
+                user=request.user,
+                request=request,
+                action="olt.connection_test_failed",
+                resource_type="OltDevice",
+                resource_id=olt.pk,
+                description=(
+                    f"OLT connection test failed "
+                    f"for '{olt.name}'."
+                ),
+                metadata={
+                    "olt": _olt_audit_snapshot(
+                        olt
+                    ),
+                    "result": "failed",
+                },
+            )
+
             return Response(
                 {
                     "status": "error",
-                    "message": diagnostic_message(
-                        olt,
-                        snmp,
-                    ),
+                    "message": message,
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        AuditService.log(
+            organization=self.get_organization(),
+            user=request.user,
+            request=request,
+            action="olt.connection_test_succeeded",
+            resource_type="OltDevice",
+            resource_id=olt.pk,
+            description=(
+                f"OLT connection test succeeded "
+                f"for '{olt.name}'."
+            ),
+            metadata={
+                "olt": _olt_audit_snapshot(
+                    olt
+                ),
+                "result": "success",
+            },
+        )
 
         return Response(
             {
@@ -157,9 +321,49 @@ class OltDeviceViewSet(
                 ]
             )
 
+            AuditService.log(
+                organization=self.get_organization(),
+                user=request.user,
+                request=request,
+                action="olt.onu_sync_succeeded",
+                resource_type="OltDevice",
+                resource_id=olt.pk,
+                description=(
+                    f"ONU sync completed for "
+                    f"OLT '{olt.name}'."
+                ),
+                metadata={
+                    "result": "success",
+                    "created": result.get(
+                        "created",
+                        0,
+                    ),
+                    "updated": result.get(
+                        "updated",
+                        0,
+                    ),
+                },
+            )
+
             return Response(
                 result
             )
+
+        AuditService.log(
+            organization=self.get_organization(),
+            user=request.user,
+            request=request,
+            action="olt.onu_sync_failed",
+            resource_type="OltDevice",
+            resource_id=olt.pk,
+            description=(
+                f"ONU sync failed for "
+                f"OLT '{olt.name}'."
+            ),
+            metadata={
+                "result": "failed",
+            },
+        )
 
         return Response(
             result,
@@ -209,17 +413,13 @@ class OnuViewSet(
     ]
 
     role_permissions = {
-        # Read access for all staff.
         "list": READ_ONLY_ROLES,
         "retrieve": READ_ONLY_ROLES,
 
-        # ONU provisioning and editing are
-        # network-operations responsibilities.
         "create": NETWORK_ROLES,
         "update": NETWORK_ROLES,
         "partial_update": NETWORK_ROLES,
 
-        # Permanent deletion is restricted.
         "destroy": ADMIN_ROLES,
     }
 
@@ -255,4 +455,107 @@ class OnuViewSet(
                 "olt",
                 "customer",
             )
+        )
+
+    def perform_create(
+        self,
+        serializer,
+    ):
+        organization = get_user_organization(
+            self.request.user
+        )
+
+        onu = serializer.save()
+
+        if onu.olt.organization_id != organization.id:
+            onu.delete()
+
+            raise ValueError(
+                "ONU organization mismatch."
+            )
+
+        AuditService.log(
+            organization=organization,
+            user=self.request.user,
+            request=self.request,
+            action="olt.onu_created",
+            resource_type="Onu",
+            resource_id=onu.pk,
+            description=(
+                f"ONU '{onu.name}' created."
+            ),
+            metadata=_onu_audit_snapshot(
+                onu
+            ),
+        )
+
+    def perform_update(
+        self,
+        serializer,
+    ):
+        organization = get_user_organization(
+            self.request.user
+        )
+
+        onu = self.get_object()
+
+        before = _onu_audit_snapshot(
+            onu
+        )
+
+        onu = serializer.save()
+
+        if onu.olt.organization_id != organization.id:
+            raise ValueError(
+                "ONU organization mismatch."
+            )
+
+        after = _onu_audit_snapshot(
+            onu
+        )
+
+        AuditService.log(
+            organization=organization,
+            user=self.request.user,
+            request=self.request,
+            action="olt.onu_updated",
+            resource_type="Onu",
+            resource_id=onu.pk,
+            description=(
+                f"ONU '{onu.name}' updated."
+            ),
+            metadata={
+                "before": before,
+                "after": after,
+            },
+        )
+
+    def perform_destroy(
+        self,
+        instance,
+    ):
+        organization = get_user_organization(
+            self.request.user
+        )
+
+        resource_id = instance.pk
+        onu_name = instance.name
+
+        metadata = _onu_audit_snapshot(
+            instance
+        )
+
+        instance.delete()
+
+        AuditService.log(
+            organization=organization,
+            user=self.request.user,
+            request=self.request,
+            action="olt.onu_deleted",
+            resource_type="Onu",
+            resource_id=resource_id,
+            description=(
+                f"ONU '{onu_name}' deleted."
+            ),
+            metadata=metadata,
         )

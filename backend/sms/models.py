@@ -1,16 +1,17 @@
 from django.contrib.auth.models import User
 from django.db import models
 
-from customers.models import CustomerProfile, MetaInfo
+from core.fields import EncryptedJSONField
+from customers.models import (
+    CustomerProfile,
+    MetaInfo,
+)
 
 
 class SmsGateway(MetaInfo):
     """
-    SMS provider configuration owned by one ISP organization.
-
-    Examples:
-    - Africa's Talking
-    - future alternative providers
+    SMS provider configuration owned by one
+    ISP organization.
     """
 
     organization = models.ForeignKey(
@@ -33,7 +34,7 @@ class SmsGateway(MetaInfo):
         default="",
     )
 
-    credentials = models.JSONField(
+    credentials = EncryptedJSONField(
         default=dict,
         blank=True,
     )
@@ -58,7 +59,10 @@ class SmsGateway(MetaInfo):
                     "organization",
                     "label",
                 ],
-                name="unique_sms_gateway_label_per_organization",
+                name=(
+                    "unique_sms_gateway_label_"
+                    "per_organization"
+                ),
             )
         ]
 
@@ -68,7 +72,11 @@ class SmsGateway(MetaInfo):
             f"({self.provider})"
         )
 
-    def save(self, *args, **kwargs):
+    def save(
+        self,
+        *args,
+        **kwargs,
+    ):
         super().save(
             *args,
             **kwargs,
@@ -81,7 +89,9 @@ class SmsGateway(MetaInfo):
             (
                 SmsGateway.objects
                 .filter(
-                    organization_id=self.organization_id,
+                    organization_id=(
+                        self.organization_id
+                    ),
                     is_default=True,
                 )
                 .exclude(
@@ -150,7 +160,10 @@ class SmsTemplate(MetaInfo):
                     "organization",
                     "name",
                 ],
-                name="unique_sms_template_name_per_organization",
+                name=(
+                    "unique_sms_template_name_"
+                    "per_organization"
+                ),
             )
         ]
 
@@ -230,14 +243,18 @@ class SmsLog(MetaInfo):
                     "organization",
                     "created_at",
                 ],
-                name="smslog_org_created_idx",
+                name=(
+                    "smslog_org_created_idx"
+                ),
             ),
             models.Index(
                 fields=[
                     "organization",
                     "status",
                 ],
-                name="smslog_org_status_idx",
+                name=(
+                    "smslog_org_status_idx"
+                ),
             ),
         ]
 

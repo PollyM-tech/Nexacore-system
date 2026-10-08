@@ -1,4 +1,5 @@
 from datetime import timedelta
+from secrets import compare_digest
 
 from django.db.models import Q
 from django.utils import timezone
@@ -21,7 +22,9 @@ from customers.models import (
     SupportTicket,
     TicketReply,
 )
-from customers.serializers.tickets import TicketReplySerializer
+from customers.serializers.tickets import (
+    TicketReplySerializer,
+)
 from mikrotik.models import RouterInfo
 from organizations.models import Organization
 
@@ -48,7 +51,9 @@ from .serializers import (
 
 
 @extend_schema(tags=["customer_portal"])
-class PublicPackageViewSet(viewsets.ReadOnlyModelViewSet):
+class PublicPackageViewSet(
+    viewsets.ReadOnlyModelViewSet
+):
     """
     Publicly list active packages for one organization.
     """
@@ -59,8 +64,10 @@ class PublicPackageViewSet(viewsets.ReadOnlyModelViewSet):
     pagination_class = None
 
     def get_queryset(self):
-        organization_slug = self.request.query_params.get(
-            "organization"
+        organization_slug = (
+            self.request.query_params.get(
+                "organization"
+            )
         )
 
         if not organization_slug:
@@ -79,38 +86,76 @@ class AuthViewSet(viewsets.ViewSet):
     Customer portal authentication and profile operations.
     """
 
-    @action(detail=False, methods=["post"])
+    @action(
+        detail=False,
+        methods=["post"],
+    )
     def login(self, request):
         serializer = CustomerPortalLoginSerializer(
             data=request.data
         )
-        serializer.is_valid(raise_exception=True)
+        serializer.is_valid(
+            raise_exception=True
+        )
 
-        organization_slug = serializer.validated_data[
-            "organization"
-        ]
-        username = serializer.validated_data[
-            "pppoe_name"
-        ].lower()
-        password = serializer.validated_data[
-            "pppoe_pass"
-        ]
+        organization_slug = (
+            serializer.validated_data[
+                "organization"
+            ]
+        )
 
-        organization = Organization.objects.filter(
-            slug=organization_slug,
-            is_active=True,
-        ).first()
+        username = (
+            serializer.validated_data[
+                "pppoe_name"
+            ]
+            .strip()
+            .lower()
+        )
+
+        password = (
+            serializer.validated_data[
+                "pppoe_pass"
+            ]
+        )
+
+        organization = (
+            Organization.objects
+            .filter(
+                slug=organization_slug,
+                is_active=True,
+            )
+            .first()
+        )
 
         if organization is None:
             return Response(
                 {
                     "status": "error",
-                    "message": "Invalid organization or credentials.",
+                    "message": (
+                        "Invalid organization "
+                        "or credentials."
+                    ),
                 },
-                status=status.HTTP_401_UNAUTHORIZED,
+                status=(
+                    status.HTTP_401_UNAUTHORIZED
+                ),
             )
 
-        router_info = (
+        #
+        # IMPORTANT:
+        #
+        # pppoe_pass is encrypted at rest using Fernet.
+        # Fernet encryption is randomized, so encrypted
+        # values cannot be queried with:
+        #
+        #     pppoe_pass=password
+        #
+        # Query only by tenant + PPPoE username.
+        # Django decrypts pppoe_pass when each RouterInfo
+        # object is loaded, then we compare the submitted
+        # password in Python.
+        #
+        candidates = (
             RouterInfo.objects
             .select_related(
                 "customer",
@@ -119,29 +164,54 @@ class AuthViewSet(viewsets.ViewSet):
             .filter(
                 customer__organization=organization,
                 pppoe_name__iexact=username,
-                pppoe_pass=password,
             )
-            .first()
         )
+
+        router_info = None
+
+        for candidate in candidates:
+            stored_password = (
+                candidate.pppoe_pass or ""
+            )
+
+            if compare_digest(
+                stored_password,
+                password,
+            ):
+                router_info = candidate
+                break
 
         if router_info is None:
             return Response(
                 {
                     "status": "error",
-                    "message": "Invalid organization or credentials.",
+                    "message": (
+                        "Invalid organization "
+                        "or credentials."
+                    ),
                 },
-                status=status.HTTP_401_UNAUTHORIZED,
+                status=(
+                    status.HTTP_401_UNAUTHORIZED
+                ),
             )
 
         customer = router_info.customer
 
-        if customer.customer_status != "active":
+        if (
+            customer.customer_status
+            != "active"
+        ):
             return Response(
                 {
                     "status": "error",
-                    "message": "Customer profile is deactivated.",
+                    "message": (
+                        "Customer profile "
+                        "is deactivated."
+                    ),
                 },
-                status=status.HTTP_403_FORBIDDEN,
+                status=(
+                    status.HTTP_403_FORBIDDEN
+                ),
             )
 
         CustomerToken.objects.filter(
@@ -151,18 +221,28 @@ class AuthViewSet(viewsets.ViewSet):
 
         token = CustomerToken.objects.create(
             customer=customer,
-            expires_at=timezone.now()
-            + timedelta(days=7),
+            expires_at=(
+                timezone.now()
+                + timedelta(days=7)
+            ),
         )
 
         return Response(
             {
                 "status": "success",
                 "token": token.key,
-                "expires_at": token.expires_at,
-                "customer_name": customer.customer_name,
-                "customer_id": customer.customer_id,
-                "organization": organization.slug,
+                "expires_at": (
+                    token.expires_at
+                ),
+                "customer_name": (
+                    customer.customer_name
+                ),
+                "customer_id": (
+                    customer.customer_id
+                ),
+                "organization": (
+                    organization.slug
+                ),
             },
             status=status.HTTP_200_OK,
         )
@@ -170,77 +250,125 @@ class AuthViewSet(viewsets.ViewSet):
     @action(
         detail=False,
         methods=["get"],
-        authentication_classes=[CustomerPortalAuthentication],
-        permission_classes=[IsAuthenticatedCustomer],
+        authentication_classes=[
+            CustomerPortalAuthentication
+        ],
+        permission_classes=[
+            IsAuthenticatedCustomer
+        ],
     )
     def profile(self, request):
-        serializer = CustomerPortalProfileSerializer(
-            request.user
+        serializer = (
+            CustomerPortalProfileSerializer(
+                request.user
+            )
         )
-        return Response(serializer.data)
+
+        return Response(
+            serializer.data
+        )
 
     @action(
         detail=False,
         methods=["post"],
-        authentication_classes=[CustomerPortalAuthentication],
-        permission_classes=[IsAuthenticatedCustomer],
+        authentication_classes=[
+            CustomerPortalAuthentication
+        ],
+        permission_classes=[
+            IsAuthenticatedCustomer
+        ],
     )
     def logout(self, request):
         token = request.auth
+
         token.is_active = False
         token.save(
-            update_fields=["is_active"]
+            update_fields=[
+                "is_active"
+            ]
         )
 
         return Response(
             {
                 "status": "success",
-                "message": "Logged out successfully.",
+                "message": (
+                    "Logged out successfully."
+                ),
             }
         )
 
 
 @portal_schema_view
-class DashboardViewSet(viewsets.ViewSet):
+class DashboardViewSet(
+    viewsets.ViewSet
+):
     authentication_classes = [
         CustomerPortalAuthentication
     ]
+
     permission_classes = [
         IsAuthenticatedCustomer
     ]
 
-    @action(detail=False, methods=["get"])
+    @action(
+        detail=False,
+        methods=["get"],
+    )
     def stats(self, request):
         customer = request.user
 
         try:
-            router_info = customer.router_info
-            router = router_info.router
+            router_info = (
+                customer.router_info
+            )
+
+            router = (
+                router_info.router
+            )
+
         except RouterInfo.DoesNotExist:
             return Response(
                 {
                     "status": "error",
-                    "message": "Router configuration not found.",
+                    "message": (
+                        "Router configuration "
+                        "not found."
+                    ),
                 },
-                status=status.HTTP_404_NOT_FOUND,
+                status=(
+                    status.HTTP_404_NOT_FOUND
+                ),
             )
 
         if not router:
             return Response(
                 {
                     "status": "error",
-                    "message": "Router connection info not assigned.",
+                    "message": (
+                        "Router connection info "
+                        "not assigned."
+                    ),
                 },
-                status=status.HTTP_404_NOT_FOUND,
+                status=(
+                    status.HTTP_404_NOT_FOUND
+                ),
             )
 
-        if router.organization_id != customer.organization_id:
+        if (
+            router.organization_id
+            != customer.organization_id
+        ):
             return Response(
                 {
                     "status": "error",
-                    "message": "Router organization mismatch.",
+                    "message": (
+                        "Router organization "
+                        "mismatch."
+                    ),
                 },
-                status=status.HTTP_403_FORBIDDEN,
+                status=(
+                    status.HTTP_403_FORBIDDEN
+                ),
             )
 
         from mikrotik.service.connection import (
@@ -260,18 +388,28 @@ class DashboardViewSet(viewsets.ViewSet):
                     {
                         "status": "offline",
                         "message": (
-                            "Unable to connect to router "
-                            "to fetch live stats."
+                            "Unable to connect "
+                            "to router to fetch "
+                            "live stats."
                         ),
-                        "live_stats_available": False,
+                        "live_stats_available": (
+                            False
+                        ),
                     }
                 )
 
-            active_resource = conn.api.get_resource(
-                "/ppp/active"
+            active_resource = (
+                conn.api.get_resource(
+                    "/ppp/active"
+                )
             )
+
             active = active_resource.get(
-                name=router_info.pppoe_name.lower()
+                name=(
+                    router_info
+                    .pppoe_name
+                    .lower()
+                )
             )
 
             if active:
@@ -280,58 +418,89 @@ class DashboardViewSet(viewsets.ViewSet):
                 return Response(
                     {
                         "status": "online",
-                        "live_stats_available": True,
-                        "uptime": stats_data.get(
-                            "uptime",
-                            "unknown",
+                        "live_stats_available": (
+                            True
                         ),
-                        "bytes_in": stats_data.get(
-                            "bytes-in",
-                            "0",
+                        "uptime": (
+                            stats_data.get(
+                                "uptime",
+                                "unknown",
+                            )
                         ),
-                        "bytes_out": stats_data.get(
-                            "bytes-out",
-                            "0",
+                        "bytes_in": (
+                            stats_data.get(
+                                "bytes-in",
+                                "0",
+                            )
                         ),
-                        "caller_id": stats_data.get(
-                            "caller-id",
-                            "unknown",
+                        "bytes_out": (
+                            stats_data.get(
+                                "bytes-out",
+                                "0",
+                            )
                         ),
-                        "address": stats_data.get(
-                            "address",
-                            "unknown",
+                        "caller_id": (
+                            stats_data.get(
+                                "caller-id",
+                                "unknown",
+                            )
+                        ),
+                        "address": (
+                            stats_data.get(
+                                "address",
+                                "unknown",
+                            )
                         ),
                     }
                 )
 
-            secret_resource = conn.api.get_resource(
-                "/ppp/secret"
+            secret_resource = (
+                conn.api.get_resource(
+                    "/ppp/secret"
+                )
             )
+
             secret = secret_resource.get(
-                name=router_info.pppoe_name.lower()
+                name=(
+                    router_info
+                    .pppoe_name
+                    .lower()
+                )
             )
 
             last_caller = "unknown"
             last_disconnect = "unknown"
 
             if secret:
-                last_caller = secret[0].get(
-                    "last-caller",
-                    "unknown",
+                last_caller = (
+                    secret[0].get(
+                        "last-caller",
+                        "unknown",
+                    )
                 )
-                last_disconnect = secret[0].get(
-                    "last-disconnect-reason",
-                    "unknown",
+
+                last_disconnect = (
+                    secret[0].get(
+                        (
+                            "last-disconnect-"
+                            "reason"
+                        ),
+                        "unknown",
+                    )
                 )
 
             return Response(
                 {
                     "status": "offline",
-                    "live_stats_available": False,
-                    "last_caller": last_caller,
-                    "last_disconnect_reason": (
-                        last_disconnect
+                    "live_stats_available": (
+                        False
                     ),
+                    "last_caller": (
+                        last_caller
+                    ),
+                    (
+                        "last_disconnect_reason"
+                    ): last_disconnect,
                 }
             )
 
@@ -340,90 +509,149 @@ class DashboardViewSet(viewsets.ViewSet):
                 {
                     "status": "offline",
                     "message": (
-                        "Router stats retrieval error: "
+                        "Router stats "
+                        "retrieval error: "
                         f"{str(exc)}"
                     ),
-                    "live_stats_available": False,
+                    "live_stats_available": (
+                        False
+                    ),
                 }
             )
 
 
 @portal_schema_view
-class BillingViewSet(viewsets.ViewSet):
+class BillingViewSet(
+    viewsets.ViewSet
+):
     authentication_classes = [
         CustomerPortalAuthentication
     ]
+
     permission_classes = [
         IsAuthenticatedCustomer
     ]
 
-    @action(detail=False, methods=["get"])
+    @action(
+        detail=False,
+        methods=["get"],
+    )
     def monthly_bills(self, request):
-        bills = MonthlyBill.objects.filter(
-            customer=request.user
+        bills = (
+            MonthlyBill.objects.filter(
+                customer=request.user
+            )
         )
 
         paginator = CustomPagination()
-        page = paginator.paginate_queryset(
-            bills,
-            request,
-            view=self,
+
+        page = (
+            paginator.paginate_queryset(
+                bills,
+                request,
+                view=self,
+            )
         )
 
         if page is not None:
-            serializer = PortalMonthlyBillSerializer(
-                page,
+            serializer = (
+                PortalMonthlyBillSerializer(
+                    page,
+                    many=True,
+                )
+            )
+
+            return (
+                paginator
+                .get_paginated_response(
+                    serializer.data
+                )
+            )
+
+        serializer = (
+            PortalMonthlyBillSerializer(
+                bills,
                 many=True,
             )
-            return paginator.get_paginated_response(
-                serializer.data
-            )
-
-        serializer = PortalMonthlyBillSerializer(
-            bills,
-            many=True,
         )
-        return Response(serializer.data)
 
-    @action(detail=False, methods=["get"])
-    def connection_fees(self, request):
-        fees = ConnectionFee.objects.filter(
-            customer=request.user
+        return Response(
+            serializer.data
+        )
+
+    @action(
+        detail=False,
+        methods=["get"],
+    )
+    def connection_fees(
+        self,
+        request,
+    ):
+        fees = (
+            ConnectionFee.objects.filter(
+                customer=request.user
+            )
         )
 
         paginator = CustomPagination()
-        page = paginator.paginate_queryset(
-            fees,
-            request,
-            view=self,
+
+        page = (
+            paginator.paginate_queryset(
+                fees,
+                request,
+                view=self,
+            )
         )
 
         if page is not None:
-            serializer = PortalConnectionFeeSerializer(
-                page,
+            serializer = (
+                PortalConnectionFeeSerializer(
+                    page,
+                    many=True,
+                )
+            )
+
+            return (
+                paginator
+                .get_paginated_response(
+                    serializer.data
+                )
+            )
+
+        serializer = (
+            PortalConnectionFeeSerializer(
+                fees,
                 many=True,
             )
-            return paginator.get_paginated_response(
-                serializer.data
-            )
-
-        serializer = PortalConnectionFeeSerializer(
-            fees,
-            many=True,
         )
-        return Response(serializer.data)
 
-    @action(detail=False, methods=["get"])
-    def transactions(self, request):
-        txs = PaymentTransaction.objects.filter(
-            customer=request.user
+        return Response(
+            serializer.data
+        )
+
+    @action(
+        detail=False,
+        methods=["get"],
+    )
+    def transactions(
+        self,
+        request,
+    ):
+        txs = (
+            PaymentTransaction.objects
+            .filter(
+                customer=request.user
+            )
         )
 
         paginator = CustomPagination()
-        page = paginator.paginate_queryset(
-            txs,
-            request,
-            view=self,
+
+        page = (
+            paginator.paginate_queryset(
+                txs,
+                request,
+                view=self,
+            )
         )
 
         if page is not None:
@@ -433,26 +661,46 @@ class BillingViewSet(viewsets.ViewSet):
                     many=True,
                 )
             )
-            return paginator.get_paginated_response(
-                serializer.data
+
+            return (
+                paginator
+                .get_paginated_response(
+                    serializer.data
+                )
             )
 
-        serializer = PortalPaymentTransactionSerializer(
-            txs,
-            many=True,
+        serializer = (
+            PortalPaymentTransactionSerializer(
+                txs,
+                many=True,
+            )
         )
-        return Response(serializer.data)
 
-    @action(detail=False, methods=["get"])
-    def status_histories(self, request):
+        return Response(
+            serializer.data
+        )
+
+    @action(
+        detail=False,
+        methods=["get"],
+    )
+    def status_histories(
+        self,
+        request,
+    ):
         histories = (
             InvoiceStatusHistory.objects
             .filter(
                 Q(
-                    monthly_bill__customer=request.user
+                    monthly_bill__customer=(
+                        request.user
+                    )
                 )
-                | Q(
-                    connection_fee__customer=request.user
+                |
+                Q(
+                    connection_fee__customer=(
+                        request.user
+                    )
                 )
             )
             .select_related(
@@ -461,10 +709,13 @@ class BillingViewSet(viewsets.ViewSet):
         )
 
         paginator = CustomPagination()
-        page = paginator.paginate_queryset(
-            histories,
-            request,
-            view=self,
+
+        page = (
+            paginator.paginate_queryset(
+                histories,
+                request,
+                view=self,
+            )
         )
 
         if page is not None:
@@ -474,8 +725,12 @@ class BillingViewSet(viewsets.ViewSet):
                     many=True,
                 )
             )
-            return paginator.get_paginated_response(
-                serializer.data
+
+            return (
+                paginator
+                .get_paginated_response(
+                    serializer.data
+                )
             )
 
         serializer = (
@@ -484,40 +739,64 @@ class BillingViewSet(viewsets.ViewSet):
                 many=True,
             )
         )
-        return Response(serializer.data)
+
+        return Response(
+            serializer.data
+        )
 
 
 @portal_ticket_schema_view
 class SupportTicketViewSet(
     viewsets.ModelViewSet
 ):
-    serializer_class = PortalSupportTicketSerializer
+    serializer_class = (
+        PortalSupportTicketSerializer
+    )
+
     authentication_classes = [
         CustomerPortalAuthentication
     ]
+
     permission_classes = [
         IsAuthenticatedCustomer
     ]
 
-    queryset = SupportTicket.objects.all()
+    queryset = (
+        SupportTicket.objects.all()
+    )
 
     def get_serializer_class(self):
         if self.action == "retrieve":
-            return PortalSupportTicketDetailSerializer
+            return (
+                PortalSupportTicketDetailSerializer
+            )
 
-        return PortalSupportTicketSerializer
-
-    def get_queryset(self):
-        return SupportTicket.objects.filter(
-            customer=self.request.user
+        return (
+            PortalSupportTicketSerializer
         )
 
-    @action(detail=True, methods=["post"])
-    def reply(self, request, pk=None):
+    def get_queryset(self):
+        return (
+            SupportTicket.objects.filter(
+                customer=self.request.user
+            )
+        )
+
+    @action(
+        detail=True,
+        methods=["post"],
+    )
+    def reply(
+        self,
+        request,
+        pk=None,
+    ):
         ticket = self.get_object()
 
-        reply_text = request.data.get(
-            "reply_text"
+        reply_text = (
+            request.data.get(
+                "reply_text"
+            )
         )
 
         if not reply_text:
@@ -525,29 +804,41 @@ class SupportTicketViewSet(
                 {
                     "status": "error",
                     "message": (
-                        "reply_text field is required."
+                        "reply_text field "
+                        "is required."
                     ),
                 },
-                status=status.HTTP_400_BAD_REQUEST,
+                status=(
+                    status.HTTP_400_BAD_REQUEST
+                ),
             )
 
-        reply = TicketReply.objects.create(
-            ticket=ticket,
-            customer=request.user,
-            reply_text=reply_text,
+        reply = (
+            TicketReply.objects.create(
+                ticket=ticket,
+                customer=request.user,
+                reply_text=reply_text,
+            )
         )
 
         if ticket.status == "closed":
             ticket.status = "open"
+
             ticket.save(
-                update_fields=["status"]
+                update_fields=[
+                    "status"
+                ]
             )
 
-        serializer = TicketReplySerializer(
-            reply
+        serializer = (
+            TicketReplySerializer(
+                reply
+            )
         )
 
         return Response(
             serializer.data,
-            status=status.HTTP_201_CREATED,
+            status=(
+                status.HTTP_201_CREATED
+            ),
         )

@@ -6,6 +6,7 @@ from rest_framework.test import (
     force_authenticate,
 )
 
+from auditlog.models import AuditLog
 from organizations.models import (
     Organization,
     OrganizationMembership,
@@ -361,4 +362,249 @@ class SchedulerRolePermissionTests(TestCase):
             Schedule.objects.filter(
                 pk=schedule.pk
             ).exists()
+        )
+
+
+class SchedulerAuditLogTests(TestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+
+        self.superuser = User.objects.create_superuser(
+            username="scheduler_audit_admin",
+            email="scheduler-audit@example.com",
+            password="testpass123",
+        )
+
+    def _request(
+        self,
+        method,
+        path,
+        data=None,
+    ):
+        method_func = getattr(
+            self.factory,
+            method.lower(),
+        )
+
+        request = method_func(
+            path,
+            data=data or {},
+            format="json",
+        )
+
+        force_authenticate(
+            request,
+            user=self.superuser,
+        )
+
+        return request
+
+    def test_schedule_creation_creates_platform_audit_log(
+        self,
+    ):
+        view = SchedulerViewSet.as_view(
+            {
+                "post": "create_task",
+            }
+        )
+
+        request = self._request(
+            "post",
+            (
+                f"/scheduler/"
+                f"{MONTHLY_BILL_TASK}/create/"
+            ),
+        )
+
+        response = view(
+            request,
+            pk=MONTHLY_BILL_TASK,
+        )
+
+        self.assertEqual(
+            response.status_code,
+            201,
+        )
+
+        log = AuditLog.objects.get(
+            action="scheduler.task_created",
+            resource_id=MONTHLY_BILL_TASK,
+        )
+
+        self.assertIsNone(
+            log.organization
+        )
+
+        self.assertEqual(
+            log.user,
+            self.superuser,
+        )
+
+        self.assertEqual(
+            log.actor_role,
+            "platform_admin",
+        )
+
+        self.assertEqual(
+            log.metadata["task_id"],
+            MONTHLY_BILL_TASK,
+        )
+
+        self.assertEqual(
+            log.metadata["schedule"][
+                "repeats"
+            ],
+            0,
+        )
+
+    def test_schedule_toggle_creates_platform_audit_log(
+        self,
+    ):
+        cfg = SCHEDULER_TASKS[
+            MONTHLY_BILL_TASK
+        ]
+
+        Schedule.objects.create(
+            name=cfg["name"],
+            func=cfg["func"],
+            schedule_type=(
+                cfg["default_schedule_type"]
+            ),
+            repeats=0,
+        )
+
+        view = SchedulerViewSet.as_view(
+            {
+                "post": "toggle_task",
+            }
+        )
+
+        request = self._request(
+            "post",
+            (
+                f"/scheduler/"
+                f"{MONTHLY_BILL_TASK}/toggle/"
+            ),
+            {
+                "status": "on",
+                "day_of_month": 1,
+            },
+        )
+
+        response = view(
+            request,
+            pk=MONTHLY_BILL_TASK,
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        log = AuditLog.objects.get(
+            action="scheduler.task_enabled",
+            resource_id=MONTHLY_BILL_TASK,
+        )
+
+        self.assertIsNone(
+            log.organization
+        )
+
+        self.assertEqual(
+            log.user,
+            self.superuser,
+        )
+
+        self.assertEqual(
+            log.metadata["before"][
+                "repeats"
+            ],
+            0,
+        )
+
+        self.assertEqual(
+            log.metadata["after"][
+                "repeats"
+            ],
+            -1,
+        )
+
+        self.assertEqual(
+            log.metadata["after"][
+                "schedule_type"
+            ],
+            "M",
+        )
+
+    def test_schedule_delete_creates_platform_audit_log(
+        self,
+    ):
+        cfg = SCHEDULER_TASKS[
+            MONTHLY_BILL_TASK
+        ]
+
+        schedule = Schedule.objects.create(
+            name=cfg["name"],
+            func=cfg["func"],
+            schedule_type=(
+                cfg["default_schedule_type"]
+            ),
+            repeats=0,
+        )
+
+        schedule_id = schedule.pk
+
+        view = SchedulerViewSet.as_view(
+            {
+                "post": "delete_task",
+            }
+        )
+
+        request = self._request(
+            "post",
+            (
+                f"/scheduler/"
+                f"{MONTHLY_BILL_TASK}/delete/"
+            ),
+        )
+
+        response = view(
+            request,
+            pk=MONTHLY_BILL_TASK,
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        log = AuditLog.objects.get(
+            action="scheduler.task_deleted",
+            resource_id=MONTHLY_BILL_TASK,
+        )
+
+        self.assertIsNone(
+            log.organization
+        )
+
+        self.assertEqual(
+            log.user,
+            self.superuser,
+        )
+
+        self.assertEqual(
+            log.actor_role,
+            "platform_admin",
+        )
+
+        self.assertEqual(
+            log.metadata["before"]["id"],
+            schedule_id,
+        )
+
+        self.assertEqual(
+            log.metadata["before"][
+                "repeats"
+            ],
+            0,
         )

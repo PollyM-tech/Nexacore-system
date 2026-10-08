@@ -11,6 +11,7 @@ from rest_framework.permissions import (
 )
 from rest_framework.response import Response
 
+from auditlog.services import AuditService
 from organizations.permissions import (
     READ_ONLY_ROLES,
     HasOrganizationRole,
@@ -35,8 +36,7 @@ class IsPlatformAdministrator(BasePermission):
     Lintech platform administrators.
 
     Django-Q schedules are global and are not tied
-    to an organization, so tenant administrators
-    must not be allowed to modify them.
+    to an organization.
     """
 
     message = (
@@ -56,6 +56,30 @@ class IsPlatformAdministrator(BasePermission):
             and user.is_authenticated
             and user.is_superuser
         )
+
+
+def _schedule_audit_snapshot(
+    schedule,
+):
+    """
+    Return JSON-safe scheduler information.
+    """
+
+    if schedule is None:
+        return None
+
+    return {
+        "id": schedule.pk,
+        "name": schedule.name,
+        "func": schedule.func,
+        "schedule_type": schedule.schedule_type,
+        "repeats": schedule.repeats,
+        "next_run": (
+            schedule.next_run.isoformat()
+            if schedule.next_run
+            else None
+        ),
+    }
 
 
 def get_next_monthly_run(
@@ -139,14 +163,6 @@ class SchedulerViewSet(
     """
 
     def get_permissions(self):
-        """
-        Organization staff may inspect scheduler
-        status.
-
-        Only the Lintech platform superuser may
-        create, delete or toggle global schedules.
-        """
-
         if self.action == "list":
             permission_classes = [
                 IsAuthenticated,
@@ -172,11 +188,6 @@ class SchedulerViewSet(
         self,
         request,
     ):
-        """
-        List all configured scheduler tasks and
-        their current status.
-        """
-
         data = []
 
         for task_id, cfg in SCHEDULER_TASKS.items():
@@ -250,13 +261,6 @@ class SchedulerViewSet(
         request,
         pk=None,
     ):
-        """
-        Create the global scheduler record for a
-        known Lintech task.
-
-        New records start disabled.
-        """
-
         if pk not in SCHEDULER_TASKS:
             return Response(
                 {
@@ -278,10 +282,10 @@ class SchedulerViewSet(
             .first()
         )
 
-        if not schedule:
-            now = timezone.now()
+        created = False
 
-            Schedule.objects.create(
+        if not schedule:
+            schedule = Schedule.objects.create(
                 name=cfg["name"],
                 func=cfg["func"],
                 schedule_type=(
@@ -290,7 +294,31 @@ class SchedulerViewSet(
                     ]
                 ),
                 repeats=0,
-                next_run=now,
+                next_run=timezone.now(),
+            )
+
+            created = True
+
+        if created:
+            AuditService.log(
+                organization=None,
+                user=request.user,
+                request=request,
+                action="scheduler.task_created",
+                resource_type="Schedule",
+                resource_id=pk,
+                description=(
+                    f"Global scheduler task "
+                    f"'{cfg['name']}' created."
+                ),
+                metadata={
+                    "task_id": pk,
+                    "schedule": (
+                        _schedule_audit_snapshot(
+                            schedule
+                        )
+                    ),
+                },
             )
 
         return Response(
@@ -315,10 +343,6 @@ class SchedulerViewSet(
         request,
         pk=None,
     ):
-        """
-        Delete a global scheduler record.
-        """
-
         if pk not in SCHEDULER_TASKS:
             return Response(
                 {
@@ -341,7 +365,28 @@ class SchedulerViewSet(
         )
 
         if schedule:
+            before = _schedule_audit_snapshot(
+                schedule
+            )
+
             schedule.delete()
+
+            AuditService.log(
+                organization=None,
+                user=request.user,
+                request=request,
+                action="scheduler.task_deleted",
+                resource_type="Schedule",
+                resource_id=pk,
+                description=(
+                    f"Global scheduler task "
+                    f"'{cfg['name']}' deleted."
+                ),
+                metadata={
+                    "task_id": pk,
+                    "before": before,
+                },
+            )
 
             return Response(
                 {
@@ -377,10 +422,6 @@ class SchedulerViewSet(
         request,
         pk=None,
     ):
-        """
-        Turn a global scheduler task on or off.
-        """
-
         if pk not in SCHEDULER_TASKS:
             return Response(
                 {
@@ -431,6 +472,10 @@ class SchedulerViewSet(
             ]
         )
 
+        before = _schedule_audit_snapshot(
+            schedule
+        )
+
         if toggle_status == "off":
             schedule.repeats = 0
 
@@ -438,6 +483,28 @@ class SchedulerViewSet(
                 update_fields=[
                     "repeats",
                 ]
+            )
+
+            AuditService.log(
+                organization=None,
+                user=request.user,
+                request=request,
+                action="scheduler.task_disabled",
+                resource_type="Schedule",
+                resource_id=pk,
+                description=(
+                    f"Global scheduler task "
+                    f"'{cfg['name']}' disabled."
+                ),
+                metadata={
+                    "task_id": pk,
+                    "before": before,
+                    "after": (
+                        _schedule_audit_snapshot(
+                            schedule
+                        )
+                    ),
+                },
             )
 
             return Response(
@@ -507,6 +574,28 @@ class SchedulerViewSet(
                     "next_run",
                     "schedule_type",
                 ]
+            )
+
+            AuditService.log(
+                organization=None,
+                user=request.user,
+                request=request,
+                action="scheduler.task_enabled",
+                resource_type="Schedule",
+                resource_id=pk,
+                description=(
+                    f"Global scheduler task "
+                    f"'{cfg['name']}' enabled."
+                ),
+                metadata={
+                    "task_id": pk,
+                    "before": before,
+                    "after": (
+                        _schedule_audit_snapshot(
+                            schedule
+                        )
+                    ),
+                },
             )
 
             return Response(
