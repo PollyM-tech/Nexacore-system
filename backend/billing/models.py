@@ -116,15 +116,14 @@ class ConnectionFee(MetaInfo):
 
 class PaymentTransaction(MetaInfo):
     PAYMENT_METHOD_CHOICES = [
-        ("cash", "Cash Payment"),
-        ("bkash", "bKash"),
-        ("nagad", "Nagad"),
-        ("rocket", "Rocket"),
-        ("bank_transfer", "Bank Transfer"),
-        ("card", "Credit/Debit Card"),
-        ("adjustment", "Manual Adjustment"),
-        ("other", "Other"),
-    ]
+    ("cash", "Cash Payment"),
+    ("mpesa", "M-Pesa"),
+    ("bank_transfer", "Bank Transfer"),
+    ("card", "Credit/Debit Card"),
+    ("adjustment", "Manual Adjustment"),
+    ("other", "Other"),
+]
+    
     customer = models.ForeignKey(CustomerProfile, on_delete=models.CASCADE, related_name="payment_transactions")
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES, default="cash")

@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     'sms',
     'olt',
     'bandwidth',
+    'payments',
 
     # Third party app
     "rest_framework",
