@@ -116,28 +116,85 @@ class ConnectionFee(MetaInfo):
 
 class PaymentTransaction(MetaInfo):
     PAYMENT_METHOD_CHOICES = [
-    ("cash", "Cash Payment"),
-    ("mpesa", "M-Pesa"),
-    ("bank_transfer", "Bank Transfer"),
-    ("card", "Credit/Debit Card"),
-    ("adjustment", "Manual Adjustment"),
-    ("other", "Other"),
-]
-    
-    customer = models.ForeignKey(CustomerProfile, on_delete=models.CASCADE, related_name="payment_transactions")
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
-    payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES, default="cash")
-    transaction_id = models.CharField(max_length=100, blank=True, null=True)
-    received_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="received_transactions")
+        ("cash", "Cash Payment"),
+        ("mpesa", "M-Pesa"),
+        ("bank_transfer", "Bank Transfer"),
+        ("card", "Credit/Debit Card"),
+        ("adjustment", "Manual Adjustment"),
+        ("other", "Other"),
+    ]
+
+    customer = models.ForeignKey(
+        CustomerProfile,
+        on_delete=models.CASCADE,
+        related_name="payment_transactions",
+    )
+
+    amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+    )
+
+    payment_method = models.CharField(
+        max_length=20,
+        choices=PAYMENT_METHOD_CHOICES,
+        default="cash",
+    )
+
+    transaction_id = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+    )
+
+    received_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="received_transactions",
+    )
+
     notes = models.TextField(blank=True)
 
     def __str__(self):
-        return f"Transaction #{self.id} - {self.customer.customer_id} - {self.amount}"
+        return (
+            f"Transaction #{self.id} - "
+            f"{self.customer.customer_id} - "
+            f"{self.amount}"
+        )
 
     class Meta:
         ordering = ["-created_at"]
         verbose_name = "Payment Transaction"
         verbose_name_plural = "Payment Transactions"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["transaction_id"],
+                condition=(
+                    models.Q(payment_method="mpesa")
+                    & models.Q(transaction_id__isnull=False)
+                    & ~models.Q(transaction_id="")
+                ),
+                name="unique_mpesa_transaction_id",
+            ),
+        ]
+
+class Meta:
+    ordering = ["-created_at"]
+    verbose_name = "Payment Transaction"
+    verbose_name_plural = "Payment Transactions"
+    constraints = [
+        models.UniqueConstraint(
+            fields=["transaction_id"],
+            condition=(
+                models.Q(payment_method="mpesa")
+                & models.Q(transaction_id__isnull=False)
+                & ~models.Q(transaction_id="")
+            ),
+            name="unique_mpesa_transaction_id",
+        ),
+    ]
 
 
 class PaymentAllocation(MetaInfo):

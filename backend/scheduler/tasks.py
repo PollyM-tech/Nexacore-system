@@ -155,3 +155,55 @@ def billing_date_update_job():
                 "updated_at",
             ]
         )
+
+
+def payment_provisioning_retry_job():
+    """
+    Retry network provisioning for settled M-Pesa payments
+    whose previous provisioning attempt failed.
+
+    Retrying a failed attempt must not extend the customer's
+    billing date again.
+    """
+    from payments.models import PaymentAttempt
+    from payments.services import (
+        PaymentProvisioningService,
+    )
+
+    attempts = (
+        PaymentAttempt.objects
+        .filter(
+            status="successful",
+            settlement_status="settled",
+            provisioning_status="failed",
+            organization__is_active=True,
+            organization__status="active",
+        )
+        .order_by("created_at")
+    )
+
+    processed = 0
+    provisioned = 0
+    failed = 0
+
+    for attempt in attempts.iterator():
+        processed += 1
+
+        try:
+            PaymentProvisioningService.provision_stk_attempt(
+                attempt.pk
+            )
+            provisioned += 1
+
+        except Exception:
+            # Router outages or individual provisioning failures
+            # must not stop retries for other customers.
+            failed += 1
+            continue
+
+    return {
+        "status": "ok",
+        "processed": processed,
+        "provisioned": provisioned,
+        "failed": failed,
+    }

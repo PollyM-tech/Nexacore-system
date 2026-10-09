@@ -21,6 +21,7 @@ from scheduler.constants import (
     BILL_DUE_DISCONNECT_TASK,
     BILLING_DATE_UPDATE_TASK,
     MONTHLY_BILL_TASK,
+    PAYMENT_PROVISIONING_RETRY_TASK,
     SCHEDULER_TASKS,
 )
 from scheduler.schemas import scheduler_schema_view
@@ -537,6 +538,16 @@ class SchedulerViewSet(
                 schedule.schedule_type = "M"
 
             elif pk == BILL_DUE_DISCONNECT_TASK:
+                schedule.next_run = (
+                    timezone.now()
+                    + datetime.timedelta(
+                        hours=1
+                    )
+                )
+
+                schedule.schedule_type = "H"
+
+            elif pk == PAYMENT_PROVISIONING_RETRY_TASK:
                 schedule.next_run = (
                     timezone.now()
                     + datetime.timedelta(

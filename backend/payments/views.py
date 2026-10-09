@@ -2,6 +2,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
 from django.utils import timezone
+from django_q.tasks import async_task
 
 from rest_framework import status
 from rest_framework.permissions import AllowAny
@@ -38,21 +39,54 @@ def _metadata_to_dict(items):
     return result
 
 
+def _accepted_response():
+    """
+    Safaricom callback acknowledgement.
+    """
+
+    return Response(
+        {
+            "ResultCode": 0,
+            "ResultDesc": "Accepted",
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+def _queue_successful_payment_processing(attempt_id):
+    """
+    Queue settlement and provisioning only after the
+    callback database transaction has committed.
+    """
+
+    transaction.on_commit(
+        lambda: async_task(
+            "payments.tasks.process_successful_stk_payment",
+            attempt_id,
+        )
+    )
+
+
 class StkCallbackView(APIView):
     """
     Public Safaricom STK callback endpoint.
 
-    Authentication is performed using the random callback token embedded
-    in the URL plus matching against a known CheckoutRequestID.
+    The callback URL contains a random configuration token.
+    The payment is also matched using CheckoutRequestID.
 
-    Repeated callbacks are acknowledged safely.
+    Successful callbacks are saved first, then settlement
+    and provisioning run asynchronously through django-q2.
     """
 
     authentication_classes = []
     permission_classes = [AllowAny]
 
     @transaction.atomic
-    def post(self, request, callback_token):
+    def post(
+        self,
+        request,
+        callback_token,
+    ):
         configuration = (
             MpesaConfiguration.objects
             .filter(
@@ -63,35 +97,23 @@ class StkCallbackView(APIView):
         )
 
         if not configuration:
-            return Response(
-                {
-                    "ResultCode": 0,
-                    "ResultDesc": "Accepted",
-                },
-                status=status.HTTP_200_OK,
-            )
+            return _accepted_response()
 
-        body = request.data.get("Body", {})
+        body = request.data.get(
+            "Body",
+            {},
+        )
 
         if not isinstance(body, dict):
-            return Response(
-                {
-                    "ResultCode": 0,
-                    "ResultDesc": "Accepted",
-                },
-                status=status.HTTP_200_OK,
-            )
+            return _accepted_response()
 
-        callback = body.get("stkCallback", {})
+        callback = body.get(
+            "stkCallback",
+            {},
+        )
 
         if not isinstance(callback, dict):
-            return Response(
-                {
-                    "ResultCode": 0,
-                    "ResultDesc": "Accepted",
-                },
-                status=status.HTTP_200_OK,
-            )
+            return _accepted_response()
 
         checkout_request_id = callback.get(
             "CheckoutRequestID"
@@ -102,13 +124,7 @@ class StkCallbackView(APIView):
         )
 
         if not checkout_request_id:
-            return Response(
-                {
-                    "ResultCode": 0,
-                    "ResultDesc": "Accepted",
-                },
-                status=status.HTTP_200_OK,
-            )
+            return _accepted_response()
 
         attempt = (
             PaymentAttempt.objects
@@ -121,35 +137,49 @@ class StkCallbackView(APIView):
         )
 
         if not attempt:
-            return Response(
-                {
-                    "ResultCode": 0,
-                    "ResultDesc": "Accepted",
-                },
-                status=status.HTTP_200_OK,
+            return _accepted_response()
+
+        # ---------------------------------------------------------
+        # Handle repeated callbacks safely.
+        # ---------------------------------------------------------
+
+        if attempt.status == "successful":
+            if attempt.settlement_status == "settled":
+                return _accepted_response()
+
+            # Payment succeeded previously but settlement did not
+            # finish. Requeue the background processor safely.
+            attempt_id = attempt.pk
+
+            _queue_successful_payment_processing(
+                attempt_id
             )
 
-        # Callback already fully processed.
-        if attempt.status == "successful":
-            return Response(
-                {
-                    "ResultCode": 0,
-                    "ResultDesc": "Accepted",
-                },
-                status=status.HTTP_200_OK,
-            )
+            return _accepted_response()
+
+        # ---------------------------------------------------------
+        # Read Daraja result.
+        # ---------------------------------------------------------
 
         result_code = str(
-            callback.get("ResultCode", "")
+            callback.get(
+                "ResultCode",
+                "",
+            )
         )
 
         result_description = str(
-            callback.get("ResultDesc", "")
+            callback.get(
+                "ResultDesc",
+                "",
+            )
         )
 
         attempt.callback_payload = request.data
         attempt.result_code = result_code
-        attempt.result_description = result_description
+        attempt.result_description = (
+            result_description
+        )
 
         if (
             merchant_request_id
@@ -159,9 +189,15 @@ class StkCallbackView(APIView):
                 merchant_request_id
             )
 
+        # ---------------------------------------------------------
+        # Failed/cancelled/timeout STK request.
+        # ---------------------------------------------------------
+
         if result_code != "0":
             attempt.status = "failed"
-            attempt.completed_at = timezone.now()
+            attempt.completed_at = (
+                timezone.now()
+            )
 
             attempt.save(
                 update_fields=[
@@ -175,13 +211,11 @@ class StkCallbackView(APIView):
                 ]
             )
 
-            return Response(
-                {
-                    "ResultCode": 0,
-                    "ResultDesc": "Accepted",
-                },
-                status=status.HTTP_200_OK,
-            )
+            return _accepted_response()
+
+        # ---------------------------------------------------------
+        # Successful STK callback metadata.
+        # ---------------------------------------------------------
 
         callback_metadata = callback.get(
             "CallbackMetadata",
@@ -189,8 +223,14 @@ class StkCallbackView(APIView):
         )
 
         metadata = _metadata_to_dict(
-            callback_metadata.get("Item", [])
-            if isinstance(callback_metadata, dict)
+            callback_metadata.get(
+                "Item",
+                [],
+            )
+            if isinstance(
+                callback_metadata,
+                dict,
+            )
             else []
         )
 
@@ -198,15 +238,25 @@ class StkCallbackView(APIView):
             "MpesaReceiptNumber"
         )
 
-        callback_amount = metadata.get("Amount")
+        callback_amount = metadata.get(
+            "Amount"
+        )
 
-        if not receipt or callback_amount is None:
+        if (
+            not receipt
+            or callback_amount is None
+        ):
             attempt.status = "failed"
+
             attempt.result_description = (
                 "Successful callback was missing "
                 "required payment metadata."
             )
 
+            attempt.completed_at = (
+                timezone.now()
+            )
+
             attempt.save(
                 update_fields=[
                     "callback_payload",
@@ -214,26 +264,36 @@ class StkCallbackView(APIView):
                     "result_description",
                     "merchant_request_id",
                     "status",
+                    "completed_at",
                     "updated_at",
                 ]
             )
 
-            return Response(
-                {
-                    "ResultCode": 0,
-                    "ResultDesc": "Accepted",
-                },
-                status=status.HTTP_200_OK,
-            )
+            return _accepted_response()
+
+        # ---------------------------------------------------------
+        # Validate amount.
+        # ---------------------------------------------------------
 
         try:
             callback_amount = Decimal(
                 str(callback_amount)
             )
-        except (InvalidOperation, TypeError, ValueError):
+
+        except (
+            InvalidOperation,
+            TypeError,
+            ValueError,
+        ):
             attempt.status = "failed"
+
             attempt.result_description = (
-                "Daraja callback contained an invalid amount."
+                "Daraja callback contained "
+                "an invalid amount."
+            )
+
+            attempt.completed_at = (
+                timezone.now()
             )
 
             attempt.save(
@@ -243,23 +303,23 @@ class StkCallbackView(APIView):
                     "result_description",
                     "merchant_request_id",
                     "status",
+                    "completed_at",
                     "updated_at",
                 ]
             )
 
-            return Response(
-                {
-                    "ResultCode": 0,
-                    "ResultDesc": "Accepted",
-                },
-                status=status.HTTP_200_OK,
-            )
+            return _accepted_response()
 
         if callback_amount != attempt.amount:
             attempt.status = "failed"
+
             attempt.result_description = (
-                "Daraja callback amount did not match "
-                "the expected payment amount."
+                "Daraja callback amount did not "
+                "match the expected payment amount."
+            )
+
+            attempt.completed_at = (
+                timezone.now()
             )
 
             attempt.save(
@@ -269,17 +329,16 @@ class StkCallbackView(APIView):
                     "result_description",
                     "merchant_request_id",
                     "status",
+                    "completed_at",
                     "updated_at",
                 ]
             )
 
-            return Response(
-                {
-                    "ResultCode": 0,
-                    "ResultDesc": "Accepted",
-                },
-                status=status.HTTP_200_OK,
-            )
+            return _accepted_response()
+
+        # ---------------------------------------------------------
+        # Payment confirmed by Safaricom.
+        # ---------------------------------------------------------
 
         attempt.mpesa_receipt_number = str(
             receipt
@@ -287,11 +346,15 @@ class StkCallbackView(APIView):
 
         attempt.status = "successful"
 
-        # The payment is confirmed, but accounting settlement
-        # has not run yet.
-        attempt.settlement_status = "unsettled"
+        # Accounting settlement runs asynchronously after
+        # this callback transaction commits.
+        attempt.settlement_status = (
+            "unsettled"
+        )
 
-        attempt.completed_at = timezone.now()
+        attempt.completed_at = (
+            timezone.now()
+        )
 
         attempt.save(
             update_fields=[
@@ -307,10 +370,12 @@ class StkCallbackView(APIView):
             ]
         )
 
-        return Response(
-            {
-                "ResultCode": 0,
-                "ResultDesc": "Accepted",
-            },
-            status=status.HTTP_200_OK,
+        attempt_id = attempt.pk
+
+        # Only queue after the successful callback data
+        # has committed to PostgreSQL.
+        _queue_successful_payment_processing(
+            attempt_id
         )
+
+        return _accepted_response()
