@@ -1,5 +1,4 @@
 import base64
-from datetime import datetime
 
 import requests
 from django.utils import timezone
@@ -11,22 +10,28 @@ class StkPushError(Exception):
     """Raised when an STK Push request cannot be initiated."""
 
 
+class StkQueryError(Exception):
+    """Raised when an STK transaction query cannot be completed."""
+
+
 class StkPushService:
     """
     Safaricom M-Pesa Express / STK Push service.
 
-    This service only initiates the payment request.
+    This service can:
+    - initiate an STK Push
+    - query the status of an STK request
 
     It does NOT:
-    - mark payments successful
-    - settle invoices
+    - settle accounting entries
     - activate PPPoE
     - activate Hotspot
 
-    Those actions happen only after a confirmed callback or reconciliation.
+    Those actions happen only after confirmed payment processing.
     """
 
     STK_PATH = "/mpesa/stkpush/v1/processrequest"
+    STK_QUERY_PATH = "/mpesa/stkpushquery/v1/query"
 
     def __init__(self, configuration):
         self.configuration = configuration
@@ -37,6 +42,13 @@ class StkPushService:
         return (
             f"{self.client.base_url}"
             f"{self.STK_PATH}"
+        )
+
+    @property
+    def stk_query_url(self):
+        return (
+            f"{self.client.base_url}"
+            f"{self.STK_QUERY_PATH}"
         )
 
     def _validate_configuration(self):
@@ -60,6 +72,30 @@ class StkPushService:
         if config.payment_mode != "own_shortcode":
             raise StkPushError(
                 "This STK service currently supports "
+                "ISP-owned shortcode configurations only."
+            )
+
+    def _validate_query_configuration(self):
+        config = self.configuration
+
+        if not config.is_active:
+            raise StkQueryError(
+                "M-Pesa configuration is inactive."
+            )
+
+        if not config.shortcode:
+            raise StkQueryError(
+                "M-Pesa shortcode is not configured."
+            )
+
+        if not config.passkey:
+            raise StkQueryError(
+                "M-Pesa passkey is not configured."
+            )
+
+        if config.payment_mode != "own_shortcode":
+            raise StkQueryError(
+                "This STK query service currently supports "
                 "ISP-owned shortcode configurations only."
             )
 
@@ -136,11 +172,8 @@ class StkPushService:
         """
         Initiate an STK Push.
 
-        Returns Safaricom's acknowledgement response.
-
         A successful acknowledgement only means Safaricom accepted
-        the STK request for processing. It does NOT mean the customer
-        has paid.
+        the request. It does not mean the customer has paid.
         """
 
         self._validate_configuration()
@@ -151,6 +184,7 @@ class StkPushService:
 
         try:
             amount = int(amount)
+
         except (TypeError, ValueError):
             raise StkPushError(
                 "STK Push amount must be a whole number."
@@ -174,6 +208,7 @@ class StkPushService:
 
         try:
             token = self.client.get_access_token()
+
         except DarajaError as exc:
             raise StkPushError(
                 "Unable to authenticate with Daraja."
@@ -190,7 +225,9 @@ class StkPushService:
             ),
             "Amount": amount,
             "PartyA": phone_number,
-            "PartyB": self.configuration.shortcode,
+            "PartyB": (
+                self.configuration.shortcode
+            ),
             "PhoneNumber": phone_number,
             "CallBackURL": callback_url,
             "AccountReference": (
@@ -215,6 +252,7 @@ class StkPushService:
                 headers=headers,
                 timeout=20,
             )
+
         except requests.RequestException as exc:
             raise StkPushError(
                 "Unable to connect to Safaricom STK service."
@@ -222,28 +260,40 @@ class StkPushService:
 
         try:
             response_payload = response.json()
+
         except ValueError as exc:
             raise StkPushError(
                 "Safaricom returned an invalid STK response."
             ) from exc
 
-        if response.status_code not in (200, 201):
+        if response.status_code not in (
+            200,
+            201,
+        ):
             error_message = (
-                response_payload.get("errorMessage")
+                response_payload.get(
+                    "errorMessage"
+                )
                 or response_payload.get(
                     "ResponseDescription"
                 )
                 or "STK Push request failed."
             )
 
-            raise StkPushError(error_message)
+            raise StkPushError(
+                error_message
+            )
 
         checkout_request_id = (
-            response_payload.get("CheckoutRequestID")
+            response_payload.get(
+                "CheckoutRequestID"
+            )
         )
 
         merchant_request_id = (
-            response_payload.get("MerchantRequestID")
+            response_payload.get(
+                "MerchantRequestID"
+            )
         )
 
         response_code = str(
@@ -271,7 +321,9 @@ class StkPushService:
             "checkout_request_id": (
                 checkout_request_id
             ),
-            "response_code": response_code,
+            "response_code": (
+                response_code
+            ),
             "response_description": (
                 response_payload.get(
                     "ResponseDescription",
@@ -283,5 +335,138 @@ class StkPushService:
                     "CustomerMessage",
                     "",
                 )
+            ),
+        }
+
+    def query(
+        self,
+        *,
+        checkout_request_id,
+    ):
+        """
+        Query Safaricom for the current state of a previously
+        initiated STK request.
+
+        This method does not settle the payment. It only returns
+        Safaricom's query result.
+        """
+
+        self._validate_query_configuration()
+
+        checkout_request_id = str(
+            checkout_request_id or ""
+        ).strip()
+
+        if not checkout_request_id:
+            raise StkQueryError(
+                "CheckoutRequestID is required."
+            )
+
+        timestamp = self._timestamp()
+
+        try:
+            token = self.client.get_access_token()
+
+        except DarajaError as exc:
+            raise StkQueryError(
+                "Unable to authenticate with Daraja."
+            ) from exc
+
+        payload = {
+            "BusinessShortCode": (
+                self.configuration.shortcode
+            ),
+            "Password": self._password(
+                timestamp
+            ),
+            "Timestamp": timestamp,
+            "CheckoutRequestID": (
+                checkout_request_id
+            ),
+        }
+
+        headers = {
+            "Authorization": (
+                f"Bearer {token.access_token}"
+            ),
+            "Content-Type": "application/json",
+        }
+
+        try:
+            response = requests.post(
+                self.stk_query_url,
+                json=payload,
+                headers=headers,
+                timeout=20,
+            )
+
+        except requests.RequestException as exc:
+            raise StkQueryError(
+                "Unable to connect to Safaricom STK query service."
+            ) from exc
+
+        try:
+            response_payload = response.json()
+
+        except ValueError as exc:
+            raise StkQueryError(
+                "Safaricom returned an invalid STK query response."
+            ) from exc
+
+        if response.status_code not in (
+            200,
+            201,
+        ):
+            error_message = (
+                response_payload.get(
+                    "errorMessage"
+                )
+                or response_payload.get(
+                    "ResponseDescription"
+                )
+                or "STK query failed."
+            )
+
+            raise StkQueryError(
+                error_message
+            )
+
+        return {
+            "response_code": str(
+                response_payload.get(
+                    "ResponseCode",
+                    "",
+                )
+            ),
+            "response_description": (
+                response_payload.get(
+                    "ResponseDescription",
+                    "",
+                )
+            ),
+            "merchant_request_id": (
+                response_payload.get(
+                    "MerchantRequestID"
+                )
+            ),
+            "checkout_request_id": (
+                response_payload.get(
+                    "CheckoutRequestID"
+                )
+            ),
+            "result_code": str(
+                response_payload.get(
+                    "ResultCode",
+                    "",
+                )
+            ),
+            "result_description": (
+                response_payload.get(
+                    "ResultDesc",
+                    "",
+                )
+            ),
+            "raw_payload": (
+                response_payload
             ),
         }

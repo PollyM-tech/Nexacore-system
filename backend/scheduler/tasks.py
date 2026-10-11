@@ -207,3 +207,59 @@ def payment_provisioning_retry_job():
         "provisioned": provisioned,
         "failed": failed,
     }
+
+def mpesa_reconciliation_job():
+    """
+    Reconcile recent STK attempts whose callbacks may
+    have been delayed or missed.
+    """
+
+    from django.utils import timezone
+    from datetime import timedelta
+
+    from payments.models import PaymentAttempt
+    from payments.services import (
+        PaymentReconciliationService,
+    )
+
+    cutoff = (
+        timezone.now()
+        - timedelta(minutes=2)
+    )
+
+    attempts = (
+        PaymentAttempt.objects
+        .filter(
+            status="pending",
+            settlement_status="unsettled",
+            checkout_request_id__isnull=False,
+            organization__is_active=True,
+            organization__status="active",
+            created_at__lte=cutoff,
+        )
+        .order_by("created_at")
+    )
+
+    processed = 0
+    reconciled = 0
+    failed = 0
+
+    for attempt in attempts.iterator():
+        processed += 1
+
+        try:
+            PaymentReconciliationService.reconcile_attempt(
+                attempt.pk
+            )
+            reconciled += 1
+
+        except Exception:
+            failed += 1
+            continue
+
+    return {
+        "status": "ok",
+        "processed": processed,
+        "reconciled": reconciled,
+        "failed": failed,
+    }

@@ -21,6 +21,7 @@ from scheduler.constants import (
     BILL_DUE_DISCONNECT_TASK,
     BILLING_DATE_UPDATE_TASK,
     MONTHLY_BILL_TASK,
+    MPESA_RECONCILIATION_TASK,
     PAYMENT_PROVISIONING_RETRY_TASK,
     SCHEDULER_TASKS,
 )
@@ -557,6 +558,17 @@ class SchedulerViewSet(
 
                 schedule.schedule_type = "H"
 
+            elif pk == MPESA_RECONCILIATION_TASK:
+                schedule.next_run = (
+                    timezone.now()
+                    + datetime.timedelta(
+                        minutes=15
+                    )
+                )
+
+                schedule.schedule_type = "I"
+                schedule.minutes = 15
+
             elif pk == BILLING_DATE_UPDATE_TASK:
                 tomorrow = (
                     timezone.localdate()
@@ -584,6 +596,7 @@ class SchedulerViewSet(
                     "repeats",
                     "next_run",
                     "schedule_type",
+                    "minutes",
                 ]
             )
 

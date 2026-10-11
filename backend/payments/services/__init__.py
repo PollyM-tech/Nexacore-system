@@ -16,9 +16,15 @@ from .provisioning import (
     ProvisioningError,
 )
 
+from .reconciliation import (
+    PaymentReconciliationError,
+    PaymentReconciliationService,
+)
+
 from .stk import (
     StkPushError,
     StkPushService,
+    StkQueryError,
 )
 
 __all__ = [
@@ -29,7 +35,10 @@ __all__ = [
     "PaymentSettlementError",
     "PaymentSettlementService",
     "PaymentProvisioningService",
+    "PaymentReconciliationError",
+    "PaymentReconciliationService",
     "ProvisioningError",
     "StkPushError",
+    "StkQueryError",
     "StkPushService",
 ]

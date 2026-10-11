@@ -2,6 +2,7 @@ MONTHLY_BILL_TASK = "monthly_bill_job"
 BILL_DUE_DISCONNECT_TASK = "bill_due_disconnect_job"
 BILLING_DATE_UPDATE_TASK = "billing_date_update_job"
 PAYMENT_PROVISIONING_RETRY_TASK = "payment_provisioning_retry_job"
+MPESA_RECONCILIATION_TASK = "mpesa_reconciliation_job"
 
 
 SCHEDULER_TASKS = {
@@ -25,4 +26,9 @@ SCHEDULER_TASKS = {
         "func": "scheduler.tasks.payment_provisioning_retry_job",
         "default_schedule_type": "H",
     },
+    MPESA_RECONCILIATION_TASK: {
+    "name": "M-Pesa Reconciliation",
+    "func": "scheduler.tasks.mpesa_reconciliation_job",
+    "default_schedule_type": "I",
+},
 }
