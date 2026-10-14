@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     'olt',
     'bandwidth',
     'payments',
+    "radius",
 
     # Third party app
     "rest_framework",

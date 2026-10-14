@@ -1,0 +1,47 @@
+sql {
+    driver = "rlm_sql_postgresql"
+    dialect = "postgresql"
+
+    server = "db"
+    port = 5432
+
+    login = "$ENV{POSTGRES_USER}"
+    password = "$ENV{POSTGRES_PASSWORD}"
+
+    radius_db = "$ENV{POSTGRES_DB}"
+
+    acct_table1 = "radacct"
+    acct_table2 = "radacct"
+
+    postauth_table = "radpostauth"
+
+    authcheck_table = "radcheck"
+    groupcheck_table = "radgroupcheck"
+
+    authreply_table = "radreply"
+    groupreply_table = "radgroupreply"
+
+    usergroup_table = "radusergroup"
+
+    client_table = "nas"
+    group_attribute = "SQL-Group"
+
+    read_clients = no
+
+    delete_stale_sessions = yes
+
+    pool {
+        start = 3
+        min = 2
+        max = 10
+        spare = 3
+        uses = 0
+        lifetime = 0
+        cleanup_interval = 30
+        idle_timeout = 60
+        retry_delay = 30
+        spread = no
+    }
+
+    $INCLUDE ${modconfdir}/${.:name}/main/${dialect}/queries.conf
+}

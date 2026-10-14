@@ -11,7 +11,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-isp} -d ${POSTGRES_DB:-isp}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-isp} -d ${POSTGRES_DB:-isp}"
+        ]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -34,7 +38,13 @@ services:
       JWT_REFRESH_LIFETIME_DAYS: ${JWT_REFRESH_LIFETIME_DAYS:-7}
       GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/schema/"]
+      test:
+        [
+          "CMD",
+          "curl",
+          "-fsS",
+          "http://localhost:8000/api/schema/"
+        ]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -51,6 +61,22 @@ services:
       backend:
         condition: service_started
     environment: *backend_env
+
+  freeradius:
+    build:
+      context: ./freeradius
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-isp}
+      POSTGRES_USER: ${POSTGRES_USER:-isp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-isp_password}
+      RADIUS_SHARED_SECRET: ${RADIUS_SHARED_SECRET:?set RADIUS_SHARED_SECRET in .env}
+    ports:
+      - "1812:1812/udp"
+      - "1813:1813/udp"
 
   frontend:
     build:
