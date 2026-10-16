@@ -15,10 +15,6 @@ class CustomerService:
     def generate_customer_id(organization):
         """
         Generate the next customer ID within an organization.
-
-        NOTE:
-        CustomerProfile.customer_id is still globally unique in the database.
-        We will change that later to organization + customer_id uniqueness.
         """
         last_customer = (
             CustomerProfile.objects
@@ -45,7 +41,11 @@ class CustomerService:
             )
         except AddressZone.DoesNotExist:
             raise serializers.ValidationError(
-                {"zone_id": ["Zone not found in this organization."]}
+                {
+                    "zone_id": [
+                        "Zone not found in this organization."
+                    ]
+                }
             )
 
     @staticmethod
@@ -60,7 +60,11 @@ class CustomerService:
             )
         except Package.DoesNotExist:
             raise serializers.ValidationError(
-                {"package_id": ["Package not found in this organization."]}
+                {
+                    "package_id": [
+                        "Package not found in this organization."
+                    ]
+                }
             )
 
     @staticmethod
@@ -75,25 +79,39 @@ class CustomerService:
             )
         except MikrotikRouter.DoesNotExist:
             raise serializers.ValidationError(
-                {"router_id": ["Router not found in this organization."]}
+                {
+                    "router_id": [
+                        "Router not found in this organization."
+                    ]
+                }
             )
 
     @staticmethod
-    def check_pppoe_user_exists(organization, router_id, pppoe_name):
+    def check_pppoe_user_exists(
+        organization,
+        router_id,
+        pppoe_name,
+    ):
         """
-        Check whether a PPPoE secret exists on one of the organization's routers.
+        Check whether a PPPoE secret exists on one of the
+        organization's routers.
         """
         if not router_id or not pppoe_name:
             return None
 
-        from mikrotik.service.helpers import check_pppoe_user_exists_on_router
+        from mikrotik.service.helpers import (
+            check_pppoe_user_exists_on_router,
+        )
 
         router = CustomerService.get_router(
             organization=organization,
             router_id=router_id,
         )
 
-        return check_pppoe_user_exists_on_router(router, pppoe_name)
+        return check_pppoe_user_exists_on_router(
+            router,
+            pppoe_name,
+        )
 
     @staticmethod
     def _calculate_next_billing_date(billing_day):
@@ -116,7 +134,10 @@ class CustomerService:
             next_month.month,
         )[1]
 
-        billing_day = min(int(billing_day), last_day)
+        billing_day = min(
+            int(billing_day),
+            last_day,
+        )
 
         return next_month.replace(
             day=billing_day,
@@ -124,23 +145,82 @@ class CustomerService:
 
     @staticmethod
     @transaction.atomic
-    def create_customer(organization, validated_data):
+    def create_customer(
+        organization,
+        validated_data,
+    ):
         """
-        Create a new customer and optionally provision PPPoE on MikroTik.
-        """
-        router_id = validated_data.get("router_id")
-        pppoe_name = validated_data.get("pppoe_name")
+        Create a customer and provision PPPoE according to
+        authentication mode.
 
-        if pppoe_name:
-            pppoe_name = pppoe_name.lower()
-            validated_data["pppoe_name"] = pppoe_name
+        local_secret:
+            Creates a local /ppp secret on MikroTik.
+
+        radius:
+            Creates FreeRADIUS authorization records and does
+            not create a local MikroTik secret.
+        """
+        authentication_mode = validated_data.get(
+            "authentication_mode",
+            "local_secret",
+        )
+
+        router_id = validated_data.get("router_id")
 
         router = CustomerService.get_router(
             organization,
             router_id,
         )
 
-        if router and pppoe_name:
+        package = CustomerService.get_package(
+            organization,
+            validated_data.get("package_id"),
+        )
+
+        if authentication_mode == "radius":
+            if not router:
+                raise serializers.ValidationError(
+                    {
+                        "router_id": [
+                            "Router is required for a "
+                            "RADIUS-managed customer."
+                        ]
+                    }
+                )
+
+            if not package:
+                raise serializers.ValidationError(
+                    {
+                        "package_id": [
+                            "Package is required for a "
+                            "RADIUS-managed customer."
+                        ]
+                    }
+                )
+
+            if not package.is_active:
+                raise serializers.ValidationError(
+                    {
+                        "package_id": [
+                            "The selected package is inactive."
+                        ]
+                    }
+                )
+
+        pppoe_name = validated_data.get("pppoe_name")
+
+        if pppoe_name:
+            pppoe_name = pppoe_name.lower()
+            validated_data["pppoe_name"] = pppoe_name
+
+        # -------------------------------------------------
+        # Local-secret duplicate checks
+        # -------------------------------------------------
+        if (
+            authentication_mode == "local_secret"
+            and router
+            and pppoe_name
+        ):
             if RouterInfo.objects.filter(
                 router=router,
                 pppoe_name__iexact=pppoe_name,
@@ -148,25 +228,30 @@ class CustomerService:
                 raise serializers.ValidationError(
                     {
                         "pppoe_name": [
-                            "PPPoE user already exists in the local database "
-                            "for this router."
+                            "PPPoE user already exists in the "
+                            "local database for this router."
                         ]
                     }
                 )
 
             try:
-                existing_info = CustomerService.check_pppoe_user_exists(
-                    organization,
-                    router_id,
-                    pppoe_name,
+                existing_info = (
+                    CustomerService.check_pppoe_user_exists(
+                        organization,
+                        router_id,
+                        pppoe_name,
+                    )
                 )
+
             except serializers.ValidationError:
                 raise
+
             except Exception as exc:
                 raise serializers.ValidationError(
                     {
                         "pppoe_name": [
-                            f"Error checking PPPoE user on router: {exc}"
+                            "Error checking PPPoE user on "
+                            f"router: {exc}"
                         ]
                     }
                 )
@@ -175,14 +260,17 @@ class CustomerService:
                 raise serializers.ValidationError(
                     {
                         "pppoe_name": [
-                            "PPPoE user already exists on this MikroTik router."
+                            "PPPoE user already exists on this "
+                            "MikroTik router."
                         ]
                     }
                 )
 
         customer_id = (
             validated_data.get("customer_id")
-            or CustomerService.generate_customer_id(organization)
+            or CustomerService.generate_customer_id(
+                organization
+            )
         )
 
         zone = CustomerService.get_zone(
@@ -190,114 +278,200 @@ class CustomerService:
             validated_data["zone_id"],
         )
 
-        package = CustomerService.get_package(
-            organization,
-            validated_data.get("package_id"),
-        )
-
-        billing_date = CustomerService._calculate_next_billing_date(
-            validated_data.get("billing_day", 1)
+        billing_date = (
+            CustomerService._calculate_next_billing_date(
+                validated_data.get(
+                    "billing_day",
+                    1,
+                )
+            )
         )
 
         customer = CustomerProfile.objects.create(
             organization=organization,
             customer_id=customer_id,
-            customer_name=validated_data["customer_name"],
+            customer_name=validated_data[
+                "customer_name"
+            ],
             nid=validated_data.get("nid"),
-            phone_number=validated_data["phone_number"],
-            phone_number2=validated_data.get("phone_number2"),
+            phone_number=validated_data[
+                "phone_number"
+            ],
+            phone_number2=validated_data.get(
+                "phone_number2"
+            ),
             address=validated_data["address"],
             zone=zone,
             package=package,
             billing_date=billing_date,
         )
 
-        if router:
-            profile = validated_data.get("profile_name")
+        # -------------------------------------------------
+        # No router selected
+        # -------------------------------------------------
+        if not router:
+            return customer
 
-            if not profile and package:
-                profile = package.name
-
-            if not profile:
-                profile = "default"
-
-            pppoe_name = validated_data.get("pppoe_name")
-            pppoe_pass = validated_data.get("pppoe_pass")
-
-            if not pppoe_name:
-                raise serializers.ValidationError(
-                    {
-                        "pppoe_name": [
-                            "PPPoE name is required when a router is selected."
-                        ]
-                    }
-                )
-
-            if not pppoe_pass:
-                raise serializers.ValidationError(
-                    {
-                        "pppoe_pass": [
-                            "PPPoE password is required when a router is selected."
-                        ]
-                    }
-                )
-
-            RouterInfo.objects.create(
-                pppoe_name=pppoe_name,
-                pppoe_pass=pppoe_pass,
-                profile_name=profile,
-                remote_ip=validated_data.get("remote_ip"),
-                customer=customer,
-                router=router,
+        # -------------------------------------------------
+        # RADIUS-managed PPPoE customer
+        # -------------------------------------------------
+        if authentication_mode == "radius":
+            from radius.services import (
+                RadiusProvisioningService,
             )
 
             try:
-                from mikrotik.service.helpers import (
-                    create_pppoe_user_on_router,
-                    generate_customer_comment,
-                )
-
-                service = (
-                    validated_data.get("service_type")
-                    or "pppoe"
-                ).lower()
-
-                comment = generate_customer_comment(
-                    customer_id=customer.customer_id,
-                    customer_name=customer.customer_name,
-                    phone_number=customer.phone_number,
-                    address=customer.address,
-                    zone_name=zone.name,
-                )
-
-                create_pppoe_user_on_router(
-                    router=router,
-                    pppoe_name=pppoe_name,
-                    pppoe_pass=pppoe_pass,
-                    profile=profile,
-                    service=service,
-                    comment=comment,
+                radius_result = (
+                    RadiusProvisioningService
+                    .provision_pppoe_customer(
+                        customer
+                    )
                 )
 
             except Exception as exc:
                 raise serializers.ValidationError(
                     {
                         "router_info": [
-                            f"MikroTik Error: {exc}"
+                            "RADIUS provisioning failed: "
+                            f"{exc}"
                         ]
                     }
                 )
+
+            RouterInfo.objects.create(
+                authentication_mode="radius",
+                pppoe_name=radius_result[
+                    "username"
+                ],
+                pppoe_pass=radius_result[
+                    "password"
+                ],
+                profile_name=(
+                    validated_data.get(
+                        "profile_name"
+                    )
+                    or package.name
+                ),
+                remote_ip=validated_data.get(
+                    "remote_ip"
+                ),
+                customer=customer,
+                router=router,
+            )
+
+            return customer
+
+        # -------------------------------------------------
+        # Existing local-secret PPPoE workflow
+        # -------------------------------------------------
+        profile = validated_data.get(
+            "profile_name"
+        )
+
+        if not profile and package:
+            profile = package.name
+
+        if not profile:
+            profile = "default"
+
+        pppoe_name = validated_data.get(
+            "pppoe_name"
+        )
+
+        pppoe_pass = validated_data.get(
+            "pppoe_pass"
+        )
+
+        if not pppoe_name:
+            raise serializers.ValidationError(
+                {
+                    "pppoe_name": [
+                        "PPPoE name is required when a "
+                        "router is selected."
+                    ]
+                }
+            )
+
+        if not pppoe_pass:
+            raise serializers.ValidationError(
+                {
+                    "pppoe_pass": [
+                        "PPPoE password is required when "
+                        "a router is selected."
+                    ]
+                }
+            )
+
+        RouterInfo.objects.create(
+            authentication_mode="local_secret",
+            pppoe_name=pppoe_name,
+            pppoe_pass=pppoe_pass,
+            profile_name=profile,
+            remote_ip=validated_data.get(
+                "remote_ip"
+            ),
+            customer=customer,
+            router=router,
+        )
+
+        try:
+            from mikrotik.service.helpers import (
+                create_pppoe_user_on_router,
+                generate_customer_comment,
+            )
+
+            service = (
+                validated_data.get(
+                    "service_type"
+                )
+                or "pppoe"
+            ).lower()
+
+            comment = generate_customer_comment(
+                customer_id=customer.customer_id,
+                customer_name=customer.customer_name,
+                phone_number=customer.phone_number,
+                address=customer.address,
+                zone_name=zone.name,
+            )
+
+            create_pppoe_user_on_router(
+                router=router,
+                pppoe_name=pppoe_name,
+                pppoe_pass=pppoe_pass,
+                profile=profile,
+                service=service,
+                comment=comment,
+            )
+
+        except Exception as exc:
+            raise serializers.ValidationError(
+                {
+                    "router_info": [
+                        f"MikroTik Error: {exc}"
+                    ]
+                }
+            )
 
         return customer
 
     @staticmethod
     @transaction.atomic
-    def link_existing_customer(organization, validated_data):
+    def link_existing_customer(
+        organization,
+        validated_data,
+    ):
         """
-        Link a new customer record to an existing MikroTik PPPoE secret.
+        Link a customer to an existing local MikroTik
+        PPPoE secret.
         """
-        router_id = validated_data.get("router_id")
-        pppoe_name = validated_data.get("pppoe_name")
+        router_id = validated_data.get(
+            "router_id"
+        )
+
+        pppoe_name = validated_data.get(
+            "pppoe_name"
+        )
 
         router = CustomerService.get_router(
             organization,
@@ -306,16 +480,26 @@ class CustomerService:
 
         if not router:
             raise serializers.ValidationError(
-                {"router_id": ["Router is required."]}
+                {
+                    "router_id": [
+                        "Router is required."
+                    ]
+                }
             )
 
         if not pppoe_name:
             raise serializers.ValidationError(
-                {"pppoe_name": ["PPPoE name is required."]}
+                {
+                    "pppoe_name": [
+                        "PPPoE name is required."
+                    ]
+                }
             )
 
         pppoe_name = pppoe_name.lower()
-        validated_data["pppoe_name"] = pppoe_name
+        validated_data["pppoe_name"] = (
+            pppoe_name
+        )
 
         if RouterInfo.objects.filter(
             router=router,
@@ -324,25 +508,31 @@ class CustomerService:
             raise serializers.ValidationError(
                 {
                     "pppoe_name": [
-                        "PPPoE user is already linked to a customer "
-                        "in the local database."
+                        "PPPoE user is already linked to "
+                        "a customer in the local database."
                     ]
                 }
             )
 
         try:
-            existing_info = CustomerService.check_pppoe_user_exists(
-                organization,
-                router_id,
-                pppoe_name,
+            existing_info = (
+                CustomerService
+                .check_pppoe_user_exists(
+                    organization,
+                    router_id,
+                    pppoe_name,
+                )
             )
+
         except serializers.ValidationError:
             raise
+
         except Exception as exc:
             raise serializers.ValidationError(
                 {
                     "pppoe_name": [
-                        f"Error checking PPPoE user on router: {exc}"
+                        "Error checking PPPoE user on "
+                        f"router: {exc}"
                     ]
                 }
             )
@@ -351,7 +541,8 @@ class CustomerService:
             raise serializers.ValidationError(
                 {
                     "pppoe_name": [
-                        "PPPoE user does not exist on this router. Cannot link."
+                        "PPPoE user does not exist on "
+                        "this router. Cannot link."
                     ]
                 }
             )
@@ -370,12 +561,17 @@ class CustomerService:
 
         remote_ip = (
             validated_data.get("remote_ip")
-            or existing_info.get("remote-address")
+            or existing_info.get(
+                "remote-address"
+            )
         )
 
         customer_id = (
             validated_data.get("customer_id")
-            or CustomerService.generate_customer_id(organization)
+            or CustomerService
+            .generate_customer_id(
+                organization
+            )
         )
 
         zone = CustomerService.get_zone(
@@ -385,27 +581,44 @@ class CustomerService:
 
         package = CustomerService.get_package(
             organization,
-            validated_data.get("package_id"),
+            validated_data.get(
+                "package_id"
+            ),
         )
 
-        billing_date = CustomerService._calculate_next_billing_date(
-            validated_data.get("billing_day", 1)
+        billing_date = (
+            CustomerService
+            ._calculate_next_billing_date(
+                validated_data.get(
+                    "billing_day",
+                    1,
+                )
+            )
         )
 
         customer = CustomerProfile.objects.create(
             organization=organization,
             customer_id=customer_id,
-            customer_name=validated_data["customer_name"],
+            customer_name=validated_data[
+                "customer_name"
+            ],
             nid=validated_data.get("nid"),
-            phone_number=validated_data["phone_number"],
-            phone_number2=validated_data.get("phone_number2"),
-            address=validated_data["address"],
+            phone_number=validated_data[
+                "phone_number"
+            ],
+            phone_number2=validated_data.get(
+                "phone_number2"
+            ),
+            address=validated_data[
+                "address"
+            ],
             zone=zone,
             package=package,
             billing_date=billing_date,
         )
 
         RouterInfo.objects.create(
+            authentication_mode="local_secret",
             pppoe_name=pppoe_name,
             pppoe_pass=pppoe_pass,
             profile_name=profile_name,
@@ -438,7 +651,8 @@ class CustomerService:
             raise serializers.ValidationError(
                 {
                     "router_info": [
-                        f"MikroTik Error during linking: {exc}"
+                        "MikroTik Error during linking: "
+                        f"{exc}"
                     ]
                 }
             )
@@ -448,11 +662,14 @@ class CustomerService:
     @staticmethod
     def get_all_customers(organization):
         """
-        Return customers belonging only to the supplied organization.
+        Return customers belonging to the supplied
+        organization.
         """
         return (
             CustomerProfile.objects
-            .filter(organization=organization)
+            .filter(
+                organization=organization
+            )
             .select_related(
                 "zone",
                 "package",
@@ -461,18 +678,28 @@ class CustomerService:
         )
 
     @staticmethod
-    def get_online_pppoe_names(organization):
+    def get_online_pppoe_names(
+        organization,
+    ):
         """
-        Return PPPoE names currently active across the organization's routers.
+        Return PPPoE usernames currently active across
+        the organization's routers.
         """
-        from mikrotik.service.connection import MikrotikConnection
-        from mikrotik.service.tools import get_active_customers
+        from mikrotik.service.connection import (
+            MikrotikConnection,
+        )
+        from mikrotik.service.tools import (
+            get_active_customers,
+        )
 
         names = set()
 
-        routers = MikrotikRouter.objects.filter(
-            organization=organization,
-            is_active=True,
+        routers = (
+            MikrotikRouter.objects
+            .filter(
+                organization=organization,
+                is_active=True,
+            )
         )
 
         for router in routers:
@@ -487,14 +714,24 @@ class CustomerService:
                 if not conn.api:
                     continue
 
-                result = get_active_customers(conn.api)
+                result = get_active_customers(
+                    conn.api
+                )
 
-                if result.get("status") == "Success":
-                    for item in result.get("customers", []):
+                if (
+                    result.get("status")
+                    == "Success"
+                ):
+                    for item in result.get(
+                        "customers",
+                        [],
+                    ):
                         name = item.get("name")
 
                         if name:
-                            names.add(name.lower())
+                            names.add(
+                                name.lower()
+                            )
 
             except Exception:
                 continue
@@ -502,9 +739,13 @@ class CustomerService:
         return names
 
     @staticmethod
-    def get_customer_details(organization, customer_id):
+    def get_customer_details(
+        organization,
+        customer_id,
+    ):
         """
-        Return one customer only if the customer belongs to the organization.
+        Return one customer only when the customer belongs
+        to the organization.
         """
         return (
             CustomerProfile.objects
@@ -540,7 +781,10 @@ class CustomerService:
             return None
 
         if billing_day is not None:
-            base = customer.billing_date or timezone.now().date()
+            base = (
+                customer.billing_date
+                or timezone.now().date()
+            )
 
             last_day = calendar.monthrange(
                 base.year,
@@ -553,12 +797,16 @@ class CustomerService:
                 28,
             )
 
-            customer.billing_date = base.replace(day=day)
+            customer.billing_date = (
+                base.replace(day=day)
+            )
 
         if extended_billing_days is not None:
             customer.extended_billing_days = max(
                 0,
-                int(extended_billing_days),
+                int(
+                    extended_billing_days
+                ),
             )
 
         customer.save()
@@ -572,10 +820,22 @@ class CustomerService:
         status_value,
     ):
         """
-        Update customer status locally and best-effort sync to MikroTik.
+        Update customer status and synchronize the PPPoE
+        authentication mechanism.
+
+        local_secret:
+            Enable or disable the MikroTik /ppp secret.
+
+        radius:
+            Update FreeRADIUS authorization and disconnect
+            an existing PPPoE session when suspended.
         """
         from mikrotik.service.helpers import (
+            disconnect_pppoe_session_on_router,
             update_pppoe_status_on_router,
+        )
+        from radius.services import (
+            RadiusProvisioningService,
         )
 
         customer = (
@@ -584,19 +844,30 @@ class CustomerService:
                 organization=organization,
                 customer_id=customer_id,
             )
-            .select_related("router_info__router")
+            .select_related(
+                "router_info__router",
+            )
             .first()
         )
 
         if not customer:
             raise serializers.ValidationError(
-                {"customer": ["Customer not found."]}
+                {
+                    "customer": [
+                        "Customer not found."
+                    ]
+                }
             )
 
-        if customer.customer_status == status_value:
+        if (
+            customer.customer_status
+            == status_value
+        ):
             return customer, None
 
-        customer.customer_status = status_value
+        customer.customer_status = (
+            status_value
+        )
 
         customer.save(
             update_fields=[
@@ -607,10 +878,74 @@ class CustomerService:
 
         warning = None
 
-        info = getattr(customer, "router_info", None)
+        info = getattr(
+            customer,
+            "router_info",
+            None,
+        )
 
-        if info and info.router:
-            disabled = status_value == "disconnected"
+        if not info:
+            return customer, None
+
+        authentication_mode = getattr(
+            info,
+            "authentication_mode",
+            "local_secret",
+        )
+
+        # -------------------------------------------------
+        # RADIUS-managed PPPoE
+        # -------------------------------------------------
+        if authentication_mode == "radius":
+            try:
+                radius_username = (
+                    RadiusProvisioningService
+                    .build_radius_username(
+                        customer
+                    )
+                )
+
+                if status_value == "active":
+                    (
+                        RadiusProvisioningService
+                        .provision_pppoe_customer(
+                            customer
+                        )
+                    )
+
+                else:
+                    (
+                        RadiusProvisioningService
+                        .suspend_pppoe_customer(
+                            customer
+                        )
+                    )
+
+                    if info.router:
+                        (
+                            disconnect_pppoe_session_on_router(
+                                info.router,
+                                radius_username,
+                            )
+                        )
+
+            except Exception as exc:
+                warning = (
+                    "Status saved locally, but "
+                    "RADIUS/router sync failed: "
+                    f"{exc}"
+                )
+
+            return customer, warning
+
+        # -------------------------------------------------
+        # Local MikroTik secret
+        # -------------------------------------------------
+        if info.router:
+            disabled = (
+                status_value
+                == "disconnected"
+            )
 
             try:
                 update_pppoe_status_on_router(
@@ -618,9 +953,11 @@ class CustomerService:
                     info.pppoe_name,
                     disabled,
                 )
+
             except Exception as exc:
                 warning = (
-                    "Status saved locally, but router sync failed: "
+                    "Status saved locally, but "
+                    "router sync failed: "
                     f"{exc}"
                 )
 
@@ -633,10 +970,17 @@ class CustomerService:
         data,
     ):
         """
-        Update PPPoE/router information without allowing cross-tenant routers.
+        Update PPPoE/router information.
+
+        RADIUS customers are synchronized with FreeRADIUS.
+        Local-secret customers are synchronized directly
+        with MikroTik.
         """
         from mikrotik.service.helpers import (
             update_pppoe_secret_on_router,
+        )
+        from radius.services import (
+            RadiusProvisioningService,
         )
 
         customer = (
@@ -645,22 +989,33 @@ class CustomerService:
                 organization=organization,
                 customer_id=customer_id,
             )
-            .select_related("router_info__router")
+            .select_related(
+                "router_info__router"
+            )
             .first()
         )
 
         if not customer:
             raise serializers.ValidationError(
-                {"customer": ["Customer not found."]}
+                {
+                    "customer": [
+                        "Customer not found."
+                    ]
+                }
             )
 
-        info = getattr(customer, "router_info", None)
+        info = getattr(
+            customer,
+            "router_info",
+            None,
+        )
 
         if not info:
             raise serializers.ValidationError(
                 {
                     "router_info": [
-                        "This customer has no PPPoE connection to edit."
+                        "This customer has no PPPoE "
+                        "connection to edit."
                     ]
                 }
             )
@@ -671,18 +1026,26 @@ class CustomerService:
             "profile_name",
             "remote_ip",
         ):
-            if field in data and data[field] is not None:
-                setattr(info, field, data[field])
+            if (
+                field in data
+                and data[field] is not None
+            ):
+                setattr(
+                    info,
+                    field,
+                    data[field],
+                )
 
         if "router" in data:
             router_id = data.get("router")
 
             if router_id:
-                router = CustomerService.get_router(
-                    organization,
-                    router_id,
+                info.router = (
+                    CustomerService.get_router(
+                        organization,
+                        router_id,
+                    )
                 )
-                info.router = router
             else:
                 info.router = None
 
@@ -690,17 +1053,46 @@ class CustomerService:
 
         warning = None
 
+        if (
+            info.authentication_mode
+            == "radius"
+        ):
+            try:
+                (
+                    RadiusProvisioningService
+                    .provision_pppoe_customer(
+                        customer
+                    )
+                )
+
+            except Exception as exc:
+                warning = (
+                    "Saved locally, but "
+                    "RADIUS sync failed: "
+                    f"{exc}"
+                )
+
+            return customer, warning
+
         if info.router:
             try:
                 update_pppoe_secret_on_router(
                     info.router,
                     info.pppoe_name,
-                    profile=info.profile_name or None,
-                    password=info.pppoe_pass or None,
+                    profile=(
+                        info.profile_name
+                        or None
+                    ),
+                    password=(
+                        info.pppoe_pass
+                        or None
+                    ),
                 )
+
             except Exception as exc:
                 warning = (
-                    "Saved locally, but router sync failed: "
+                    "Saved locally, but "
+                    "router sync failed: "
                     f"{exc}"
                 )
 
@@ -713,10 +1105,21 @@ class CustomerService:
         customer_id,
     ):
         """
-        Delete a customer and remove their PPPoE account from MikroTik.
+        Delete a customer and remove PPPoE authorization.
+
+        RADIUS:
+            Remove radcheck/radreply records and disconnect
+            an active PPP session.
+
+        local_secret:
+            Delete the MikroTik /ppp secret.
         """
         from mikrotik.service.helpers import (
             delete_pppoe_user_from_router,
+            disconnect_pppoe_session_on_router,
+        )
+        from radius.services import (
+            RadiusProvisioningService,
         )
 
         customer = (
@@ -725,31 +1128,86 @@ class CustomerService:
                 organization=organization,
                 customer_id=customer_id,
             )
-            .select_related("router_info__router")
+            .select_related(
+                "router_info__router"
+            )
             .first()
         )
 
         if not customer:
             raise serializers.ValidationError(
-                {"customer": ["Customer not found."]}
+                {
+                    "customer": [
+                        "Customer not found."
+                    ]
+                }
             )
 
-        info = getattr(customer, "router_info", None)
+        info = getattr(
+            customer,
+            "router_info",
+            None,
+        )
 
-        if info and info.router:
-            try:
-                delete_pppoe_user_from_router(
-                    info.router,
-                    info.pppoe_name,
-                )
-            except Exception as exc:
-                raise serializers.ValidationError(
-                    {
-                        "customer": [
-                            "Failed to delete user from MikroTik router: "
-                            f"{exc}. Deletion rolled back."
-                        ]
-                    }
-                )
+        if info:
+            if (
+                info.authentication_mode
+                == "radius"
+            ):
+                try:
+                    radius_username = (
+                        RadiusProvisioningService
+                        .build_radius_username(
+                            customer
+                        )
+                    )
+
+                    (
+                        RadiusProvisioningService
+                        .remove_pppoe_customer(
+                            customer
+                        )
+                    )
+
+                    if info.router:
+                        (
+                            disconnect_pppoe_session_on_router(
+                                info.router,
+                                radius_username,
+                            )
+                        )
+
+                except Exception as exc:
+                    raise serializers.ValidationError(
+                        {
+                            "customer": [
+                                "Failed to remove "
+                                "RADIUS customer access: "
+                                f"{exc}. Deletion "
+                                "rolled back."
+                            ]
+                        }
+                    )
+
+            elif info.router:
+                try:
+                    (
+                        delete_pppoe_user_from_router(
+                            info.router,
+                            info.pppoe_name,
+                        )
+                    )
+
+                except Exception as exc:
+                    raise serializers.ValidationError(
+                        {
+                            "customer": [
+                                "Failed to delete user "
+                                "from MikroTik router: "
+                                f"{exc}. Deletion "
+                                "rolled back."
+                            ]
+                        }
+                    )
 
         customer.delete()

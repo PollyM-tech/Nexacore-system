@@ -119,6 +119,60 @@ def update_pppoe_status_on_router(router, pppoe_name, disabled):
         except Exception:
             pass
 
+
+def disconnect_pppoe_session_on_router(router, pppoe_name):
+    """
+    Disconnect an active PPP session without modifying /ppp secret.
+
+    Intended for RADIUS-managed PPPoE customers.
+
+    Returns:
+        bool: True if one or more active sessions were removed,
+              False if no matching active session existed.
+
+    Raises:
+        Exception: If the router API cannot be reached or the active
+                   session cannot be removed.
+    """
+    pppoe_name = pppoe_name.lower()
+
+    conn = MikrotikConnection(
+        host=router.host,
+        port=router.port,
+        username=router.username,
+        password=router.password,
+    )
+
+    if not conn.api:
+        raise Exception(
+            f"Failed to connect to MikroTik router "
+            f"'{router.name}' at {router.host}:{router.port}."
+        )
+
+    active_resource = conn.api.get_resource("/ppp/active")
+
+    try:
+        active_sessions = active_resource.get(
+            name=pppoe_name,
+        )
+
+        if not active_sessions:
+            return False
+
+        for session in active_sessions:
+            active_resource.remove(
+                id=session["id"],
+            )
+
+        return True
+
+    except Exception as exc:
+        raise Exception(
+            "Router API error while disconnecting "
+            f"RADIUS PPPoE session: {exc}"
+        )
+
+
 def update_pppoe_secret_on_router(router, pppoe_name, profile=None, password=None):
     """Update profile and/or password on an existing PPPoE secret.
 

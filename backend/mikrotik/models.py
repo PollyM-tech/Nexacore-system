@@ -148,6 +148,26 @@ class MikrotikRouter(MetaInfo):
 
 
 class RouterInfo(MetaInfo):
+    AUTHENTICATION_MODE_CHOICES = [
+        (
+            "local_secret",
+            "Local MikroTik Secret",
+        ),
+        (
+            "radius",
+            "FreeRADIUS",
+        ),
+    ]
+
+    authentication_mode = models.CharField(
+        max_length=20,
+        choices=AUTHENTICATION_MODE_CHOICES,
+        default="local_secret",
+        help_text=(
+            "How this PPPoE customer is authenticated."
+        ),
+    )
+
     pppoe_name = models.CharField(
         max_length=255,
     )
