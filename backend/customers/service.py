@@ -964,6 +964,7 @@ class CustomerService:
         return customer, warning
 
     @staticmethod
+    @transaction.atomic
     def update_customer_connection(
         organization,
         customer_id,
@@ -972,9 +973,17 @@ class CustomerService:
         """
         Update PPPoE/router information.
 
-        RADIUS customers are synchronized with FreeRADIUS.
-        Local-secret customers are synchronized directly
-        with MikroTik.
+        RADIUS customers:
+            FreeRADIUS is the credential source of truth.
+            Any requested password change is written to
+            radcheck first, and RouterInfo is then synchronized
+            from the provisioning result in the same database
+            transaction. The generated RADIUS username cannot
+            be changed manually.
+
+        Local-secret customers:
+            Connection settings are stored locally and then
+            synchronized directly with MikroTik.
         """
         from mikrotik.service.helpers import (
             update_pppoe_secret_on_router,
@@ -990,7 +999,8 @@ class CustomerService:
                 customer_id=customer_id,
             )
             .select_related(
-                "router_info__router"
+                "package",
+                "router_info__router",
             )
             .first()
         )
@@ -1020,6 +1030,151 @@ class CustomerService:
                 }
             )
 
+        authentication_mode = getattr(
+            info,
+            "authentication_mode",
+            "local_secret",
+        )
+
+        # -------------------------------------------------
+        # RADIUS-managed PPPoE
+        # -------------------------------------------------
+        if authentication_mode == "radius":
+            radius_username = (
+                RadiusProvisioningService
+                .build_radius_username(
+                    customer
+                )
+            )
+
+            requested_name = data.get(
+                "pppoe_name"
+            )
+
+            if (
+                requested_name is not None
+                and requested_name.strip().lower()
+                != radius_username.lower()
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "pppoe_name": [
+                            "RADIUS usernames are generated "
+                            "by Lintech and cannot be changed "
+                            "manually."
+                        ]
+                    }
+                )
+
+            if "router" in data:
+                router_id = data.get(
+                    "router"
+                )
+
+                if not router_id:
+                    raise serializers.ValidationError(
+                        {
+                            "router": [
+                                "A router is required for a "
+                                "RADIUS-managed customer."
+                            ]
+                        }
+                    )
+
+                info.router = (
+                    CustomerService.get_router(
+                        organization,
+                        router_id,
+                    )
+                )
+
+            if (
+                "profile_name" in data
+                and data["profile_name"] is not None
+            ):
+                info.profile_name = (
+                    data["profile_name"]
+                )
+
+            if (
+                "remote_ip" in data
+                and data["remote_ip"] is not None
+            ):
+                info.remote_ip = (
+                    data["remote_ip"]
+                )
+
+            password_supplied = (
+                "pppoe_pass" in data
+            )
+
+            requested_password = (
+                data.get("pppoe_pass")
+                if password_supplied
+                else None
+            )
+
+            if (
+                password_supplied
+                and not requested_password
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "pppoe_pass": [
+                            "RADIUS password cannot be empty."
+                        ]
+                    }
+                )
+
+            try:
+                radius_result = (
+                    RadiusProvisioningService
+                    .provision_pppoe_customer(
+                        customer,
+                        password=requested_password,
+                        reset_password=password_supplied,
+                    )
+                )
+
+            except serializers.ValidationError:
+                raise
+
+            except Exception as exc:
+                raise serializers.ValidationError(
+                    {
+                        "router_info": [
+                            "RADIUS connection update failed: "
+                            f"{exc}"
+                        ]
+                    }
+                )
+
+            # FreeRADIUS is authoritative for generated
+            # credentials. Synchronize RouterInfo only after
+            # provisioning succeeds so the two stores cannot
+            # drift apart.
+            info.pppoe_name = (
+                radius_result["username"]
+            )
+            info.pppoe_pass = (
+                radius_result["password"]
+            )
+
+            if (
+                not info.profile_name
+                and customer.package
+            ):
+                info.profile_name = (
+                    customer.package.name
+                )
+
+            info.save()
+
+            return customer, None
+
+        # -------------------------------------------------
+        # Local MikroTik secret
+        # -------------------------------------------------
         for field in (
             "pppoe_name",
             "pppoe_pass",
@@ -1037,7 +1192,9 @@ class CustomerService:
                 )
 
         if "router" in data:
-            router_id = data.get("router")
+            router_id = data.get(
+                "router"
+            )
 
             if router_id:
                 info.router = (
@@ -1052,27 +1209,6 @@ class CustomerService:
         info.save()
 
         warning = None
-
-        if (
-            info.authentication_mode
-            == "radius"
-        ):
-            try:
-                (
-                    RadiusProvisioningService
-                    .provision_pppoe_customer(
-                        customer
-                    )
-                )
-
-            except Exception as exc:
-                warning = (
-                    "Saved locally, but "
-                    "RADIUS sync failed: "
-                    f"{exc}"
-                )
-
-            return customer, warning
 
         if info.router:
             try:

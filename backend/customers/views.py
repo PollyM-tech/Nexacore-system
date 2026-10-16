@@ -717,6 +717,221 @@ class CustomerViewSet(
         from mikrotik.service.connection import (
             MikrotikConnection,
         )
+        from radius.services import (
+            RadiusAccountingService,
+            RadiusProvisioningService,
+        )
+
+        authentication_mode = getattr(
+            info,
+            "authentication_mode",
+            "local_secret",
+        )
+
+        if authentication_mode == "radius":
+            radius_online = (
+                RadiusAccountingService
+                .customer_is_online(
+                    organization,
+                    customer.customer_id,
+                )
+            )
+
+            latest_session = (
+                RadiusAccountingService
+                .latest_customer_session(
+                    organization,
+                    customer.customer_id,
+                )
+            )
+
+            accounting_data = None
+
+            if latest_session is not None:
+                accounting_data = (
+                    RadiusAccountingService
+                    .session_to_dict(
+                        latest_session,
+                        customer,
+                    )
+                )
+
+            radius_username = (
+                RadiusProvisioningService
+                .build_radius_username(
+                    customer
+                )
+            )
+
+            base = {
+                "authentication_mode": "radius",
+                "username": radius_username,
+                "profile": (
+                    customer.package.name
+                    if customer.package
+                    else "unknown"
+                ),
+                "service": (
+                    (accounting_data or {}).get(
+                        "service_type"
+                    )
+                    or "pppoe"
+                ),
+                "status": (
+                    "online"
+                    if radius_online
+                    else "offline"
+                ),
+                "live_stats_available": False,
+                "radius_online": radius_online,
+                "accounting": accounting_data,
+                "last_logged_in": (
+                    (accounting_data or {}).get(
+                        "started_at"
+                    )
+                ),
+                "last_logged_out": (
+                    (accounting_data or {}).get(
+                        "stopped_at"
+                    )
+                ),
+                "last_caller": (
+                    (accounting_data or {}).get(
+                        "mac_address"
+                    )
+                    or "unknown"
+                ),
+                "last_disconnect_reason": (
+                    (accounting_data or {}).get(
+                        "terminate_cause"
+                    )
+                    or "unknown"
+                ),
+                "limit_bytes_in": "0",
+                "limit_bytes_out": "0",
+                "disabled": (
+                    "false"
+                    if customer.customer_status == "active"
+                    else "true"
+                ),
+            }
+
+            try:
+                conn = MikrotikConnection(
+                    host=info.router.host,
+                    port=info.router.port,
+                    username=info.router.username,
+                    password=info.router.password,
+                )
+
+                if not conn.api:
+                    return Response(
+                        {
+                            **base,
+                            "message": (
+                                "RADIUS accounting is "
+                                "available, but Lintech "
+                                "could not connect to "
+                                "the router for live "
+                                "traffic counters."
+                            ),
+                        }
+                    )
+
+                active = (
+                    conn.api
+                    .get_resource(
+                        "/ppp/active"
+                    )
+                    .get(
+                        name=radius_username
+                    )
+                )
+
+                if active:
+                    session = active[0]
+
+                    return Response(
+                        {
+                            **base,
+                            "status": "online",
+                            "live_stats_available": True,
+                            "radius_online": True,
+                            "uptime": session.get(
+                                "uptime",
+                                "unknown",
+                            ),
+                            "bytes_in": session.get(
+                                "bytes-in",
+                                "0",
+                            ),
+                            "bytes_out": session.get(
+                                "bytes-out",
+                                "0",
+                            ),
+                            "packets_in": session.get(
+                                "packets-in",
+                                "0",
+                            ),
+                            "packets_out": session.get(
+                                "packets-out",
+                                "0",
+                            ),
+                            "caller_id": session.get(
+                                "caller-id",
+                                (accounting_data or {}).get(
+                                    "mac_address",
+                                    "unknown",
+                                ),
+                            ),
+                            "address": session.get(
+                                "address",
+                                (accounting_data or {}).get(
+                                    "ip_address",
+                                    "unknown",
+                                ),
+                            ),
+                            "session_id": session.get(
+                                "session-id",
+                                "unknown",
+                            ),
+                            "encoding": session.get(
+                                "encoding",
+                                "unknown",
+                            ),
+                        }
+                    )
+
+                return Response(
+                    {
+                        **base,
+                        "message": (
+                            "No active PPP session "
+                            "was found on the router."
+                            if not radius_online
+                            else (
+                                "RADIUS accounting reports "
+                                "the customer online, but "
+                                "the router did not return "
+                                "a matching active PPP "
+                                "session."
+                            )
+                        ),
+                    }
+                )
+
+            except Exception as exc:
+                return Response(
+                    {
+                        **base,
+                        "message": (
+                            "RADIUS accounting status "
+                            "was retrieved, but router "
+                            "live statistics could not "
+                            f"be loaded: {exc}"
+                        ),
+                    }
+                )
 
         try:
             conn = MikrotikConnection(
@@ -731,6 +946,9 @@ class CustomerViewSet(
                     {
                         "status": "offline",
                         "live_stats_available": False,
+                        "authentication_mode": (
+                            "local_secret"
+                        ),
                         "message": (
                             "Unable to connect "
                             "to router."
@@ -738,7 +956,26 @@ class CustomerViewSet(
                     }
                 )
 
-            name = info.pppoe_name.lower()
+            name = (
+                info.pppoe_name
+                or ""
+            ).lower()
+
+            if not name:
+                return Response(
+                    {
+                        "status": "offline",
+                        "live_stats_available": False,
+                        "authentication_mode": (
+                            "local_secret"
+                        ),
+                        "message": (
+                            "No PPPoE username "
+                            "configured for this "
+                            "customer."
+                        ),
+                    }
+                )
 
             secret_list = (
                 conn.api
@@ -757,6 +994,10 @@ class CustomerViewSet(
             )
 
             base = {
+                "authentication_mode": (
+                    "local_secret"
+                ),
+                "username": name,
                 "profile": secret.get(
                     "profile",
                     "unknown",
@@ -870,6 +1111,9 @@ class CustomerViewSet(
                 {
                     "status": "offline",
                     "live_stats_available": False,
+                    "authentication_mode": (
+                        "local_secret"
+                    ),
                     "message": str(exc),
                 }
             )
