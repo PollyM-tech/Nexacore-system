@@ -1,9 +1,12 @@
+from datetime import timedelta
+
 import re
 import secrets
 import string
 
 from django.db import transaction
-from django.db.models import Count, Sum
+from django.db.models import Count,Q, Sum
+from django.utils import timezone
 
 from customers.models import CustomerProfile
 from radius.models import RadAcct, RadiusCheck, RadiusReply
@@ -499,7 +502,20 @@ class RadiusAccountingService:
     All organization-level queries are tenant-scoped
     through Lintech customer identities rather than
     exposing the raw radacct table directly.
+
+    MikroTik PPP accounting is configured to send
+    interim updates every five minutes. Lintech allows
+    three missed intervals before considering an
+    apparently active session stale.
     """
+
+    INTERIM_UPDATE_INTERVAL = timedelta(
+        minutes=5
+    )
+
+    STALE_SESSION_AFTER = timedelta(
+        minutes=15
+    )
 
     @staticmethod
     def _get_customer(
@@ -548,10 +564,12 @@ class RadiusAccountingService:
         organization,
     ):
         """
-        Return:
+        Return a mapping of generated RADIUS usernames
+        to Lintech customers.
+
+        Example:
             {
-                "radius-username": CustomerProfile,
-                ...
+                "lintech-demo-test001": customer,
             }
         """
         username_map = {}
@@ -568,11 +586,79 @@ class RadiusAccountingService:
                 )
             )
 
-            username_map[username] = (
-                customer
-            )
+            username_map[
+                username
+            ] = customer
 
         return username_map
+
+    @classmethod
+    def _session_cutoff(
+        cls,
+        now=None,
+    ):
+        """
+        Return the oldest accounting timestamp that
+        Lintech may still consider online.
+
+        The MikroTik sends an interim update every
+        five minutes. Three missed intervals are
+        allowed before a session becomes stale.
+        """
+        current_time = (
+            now
+            or timezone.now()
+        )
+
+        return (
+            current_time
+            - cls.STALE_SESSION_AFTER
+        )
+
+    @classmethod
+    def is_session_online(
+        cls,
+        session,
+        now=None,
+    ):
+        """
+        Determine whether one accounting row represents
+        a genuinely online PPP session.
+
+        Requirements:
+        - accounting start exists
+        - accounting stop does not exist
+        - most recent accounting activity is fresh
+
+        Before the first interim update arrives,
+        acctstarttime acts as the freshness timestamp.
+        """
+        if (
+            session.acctstarttime
+            is None
+        ):
+            return False
+
+        if (
+            session.acctstoptime
+            is not None
+        ):
+            return False
+
+        last_seen = (
+            session.acctupdatetime
+            or session.acctstarttime
+        )
+
+        if last_seen is None:
+            return False
+
+        return (
+            last_seen
+            >= cls._session_cutoff(
+                now
+            )
+        )
 
     @classmethod
     def all_sessions(
@@ -580,8 +666,8 @@ class RadiusAccountingService:
         organization,
     ):
         """
-        Return all RADIUS accounting sessions
-        belonging to the organization's customers.
+        Return all RADIUS accounting sessions belonging
+        to the organization's Lintech customers.
         """
         username_map = (
             cls._organization_username_map(
@@ -590,7 +676,9 @@ class RadiusAccountingService:
         )
 
         if not username_map:
-            return RadAcct.objects.none()
+            return (
+                RadAcct.objects.none()
+            )
 
         return (
             RadAcct.objects
@@ -611,9 +699,19 @@ class RadiusAccountingService:
         organization,
     ):
         """
-        Return sessions that have started but do
-        not yet have an accounting stop time.
+        Return genuinely active RADIUS sessions.
+
+        A missing accounting stop packet by itself
+        is not sufficient proof that the customer
+        remains connected.
+
+        Sessions with no accounting activity within
+        the stale threshold are excluded.
         """
+        cutoff = (
+            cls._session_cutoff()
+        )
+
         return (
             cls.all_sessions(
                 organization
@@ -621,6 +719,16 @@ class RadiusAccountingService:
             .filter(
                 acctstarttime__isnull=False,
                 acctstoptime__isnull=True,
+            )
+            .filter(
+                Q(
+                    acctupdatetime__gte=cutoff
+                )
+                |
+                Q(
+                    acctupdatetime__isnull=True,
+                    acctstarttime__gte=cutoff,
+                )
             )
         )
 
@@ -665,8 +773,8 @@ class RadiusAccountingService:
         customer_id,
     ):
         """
-        Return the customer's newest session,
-        or None if there is no accounting history.
+        Return the customer's newest accounting session,
+        or None when no accounting history exists.
         """
         return (
             cls.customer_sessions(
@@ -683,11 +791,13 @@ class RadiusAccountingService:
         customer_id,
     ):
         """
-        Determine online state from radacct.
-
-        A session is considered active when it has
-        a start time and no stop time.
+        Determine online status using fresh accounting
+        activity rather than only a missing stop packet.
         """
+        cutoff = (
+            cls._session_cutoff()
+        )
+
         return (
             cls.customer_sessions(
                 organization,
@@ -696,6 +806,16 @@ class RadiusAccountingService:
             .filter(
                 acctstarttime__isnull=False,
                 acctstoptime__isnull=True,
+            )
+            .filter(
+                Q(
+                    acctupdatetime__gte=cutoff
+                )
+                |
+                Q(
+                    acctupdatetime__isnull=True,
+                    acctstarttime__gte=cutoff,
+                )
             )
             .exists()
         )
@@ -717,19 +837,21 @@ class RadiusAccountingService:
             )
         )
 
-        totals = sessions.aggregate(
-            session_count=Count(
-                "radacctid"
-            ),
-            total_session_seconds=Sum(
-                "acctsessiontime"
-            ),
-            total_input_bytes=Sum(
-                "acctinputoctets"
-            ),
-            total_output_bytes=Sum(
-                "acctoutputoctets"
-            ),
+        totals = (
+            sessions.aggregate(
+                session_count=Count(
+                    "radacctid"
+                ),
+                total_session_seconds=Sum(
+                    "acctsessiontime"
+                ),
+                total_input_bytes=Sum(
+                    "acctinputoctets"
+                ),
+                total_output_bytes=Sum(
+                    "acctoutputoctets"
+                ),
+            )
         )
 
         return {
@@ -759,14 +881,26 @@ class RadiusAccountingService:
             ),
         }
 
-    @staticmethod
+    @classmethod
     def session_to_dict(
+        cls,
         session,
         customer=None,
     ):
         """
-        Convert a RadAcct row into a stable Lintech
-        representation suitable for serializers/APIs.
+        Convert one RadAcct row into the stable Lintech
+        representation used by APIs.
+
+        Byte direction is from the customer's point
+        of view:
+
+        acctinputoctets:
+            bytes received by NAS from customer
+            -> customer upload
+
+        acctoutputoctets:
+            bytes sent by NAS to customer
+            -> customer download
         """
         router_info = None
         router = None
@@ -833,18 +967,20 @@ class RadiusAccountingService:
                 or 0
             ),
             "download_bytes": (
-                session.acctinputoctets
+                session.acctoutputoctets
                 or 0
             ),
             "upload_bytes": (
-                session.acctoutputoctets
+                session.acctinputoctets
                 or 0
             ),
             "total_bytes": (
                 session.total_bytes
             ),
             "online": (
-                session.is_active
+                cls.is_session_online(
+                    session
+                )
             ),
             "terminate_cause": (
                 session.acctterminatecause
@@ -861,8 +997,8 @@ class RadiusAccountingService:
         active_only=False,
     ):
         """
-        Return organization sessions enriched with
-        Lintech customer/router information.
+        Return organization accounting sessions enriched
+        with Lintech customer and router information.
         """
         username_map = (
             cls._organization_username_map(
@@ -876,6 +1012,7 @@ class RadiusAccountingService:
                     organization
                 )
             )
+
         else:
             sessions = (
                 cls.all_sessions(
@@ -900,8 +1037,8 @@ class RadiusAccountingService:
         customer_id,
     ):
         """
-        Return enriched accounting history for
-        one customer.
+        Return enriched accounting history for one
+        Lintech customer.
         """
         customer = (
             cls._get_customer(

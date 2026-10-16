@@ -55,6 +55,10 @@ urlpatterns = [
         include("mikrotik.urls"),
     ),
     path(
+    "api/radius/",
+    include("radius.urls"),
+),
+    path(
         "api/scheduler/",
         include("scheduler.urls"),
     ),
