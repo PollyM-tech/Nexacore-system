@@ -7,28 +7,39 @@
 @theme {
   --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
 
-  --color-brand-50: #eef9f6;
-  --color-brand-100: #d3f0e8;
-  --color-brand-200: #a7e1d2;
-  --color-brand-300: #6fcab6;
-  --color-brand-400: #3aab96;
-  --color-brand-500: #14a085;
-  --color-brand-600: #0c8a73;
-  --color-brand-700: #0c6f5e;
-  --color-brand-800: #0d584c;
-  --color-brand-900: #0c483f;
+  --color-brand-50: #f2f5fc;
+  --color-brand-100: #e3eaf8;
+  --color-brand-200: #c6d5ef;
+  --color-brand-300: #9db5e1;
+  --color-brand-400: #6c8ecb;
+  --color-brand-500: #3e64aa;
+  --color-brand-600: #294d91;
+  --color-brand-700: #1c3974;
+  --color-brand-800: #142b62;
+  --color-brand-900: #0b1c4d;
 
-  --color-ink-950: #0a0f1a;
-  --color-ink-900: #0f1626;
-  --color-ink-800: #16203a;
+  --color-accent-50: #fff7ed;
+  --color-accent-100: #ffead4;
+  --color-accent-500: #ff7a00;
+  --color-accent-600: #c84e00;
+  --color-accent-700: #a63d00;
+
+  --color-ink-950: #06112e;
+  --color-ink-900: #0b1c4d;
+  --color-ink-800: #142b62;
 }
 
 @layer base {
   html {
     @apply antialiased;
   }
+  :focus-visible {
+    outline: 2px solid var(--color-brand-600);
+    outline-offset: 3px;
+  }
+  button:not(:disabled), summary, a { cursor: pointer; }
   body {
-    @apply bg-slate-100 text-slate-800 dark:bg-ink-950 dark:text-slate-200;
+    @apply bg-white text-ink-900 dark:bg-ink-950 dark:text-slate-200;
   }
 }
 
@@ -37,7 +48,8 @@
 }
 
 @utility card-surface {
-  @apply rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/40 dark:border-slate-800 dark:bg-ink-900 dark:shadow-none;
+  @apply rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/40 dark:border-slate-700/60 dark:bg-ink-900 dark:shadow-none;
+  box-shadow: 0 2px 4px #0b1c4d03, 0 12px 32px -22px #0b1c4d30;
 }
 
 @keyframes fade-rise {
@@ -61,4 +73,21 @@
 }
 ::-webkit-scrollbar-thumb {
   @apply rounded-full bg-slate-300 dark:bg-slate-700;
+}
+
+/* Respect reduced-motion preferences for public section navigation. */
+@media (prefers-reduced-motion: no-preference) {
+  html:has(#pricing) { scroll-behavior: smooth; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise { animation: none; }
+}
+
+/* White workspace with a compact navy navigation rail. */
+.navy-sidebar nav a, .navy-sidebar nav button { color: #e3eaf8; }
+.navy-sidebar nav p { color: #c6d5ef; }
+.navy-sidebar nav a:hover, .navy-sidebar nav button:hover { background-color: #142b62; color: white; }
+.navy-sidebar nav a[aria-current="page"], .navy-sidebar nav button[aria-expanded="true"] {
+  background-color: #142b62; color: white; box-shadow: inset 3px 0 #ff7a00;
 }

@@ -8,7 +8,8 @@ export function useSchedulerTasks() {
     queryKey: ["scheduler"],
     queryFn: async (): Promise<SchedulerTask[]> => {
       const { data } = await api.get<SchedulerTask[]>(API.scheduler);
-      return Array.isArray(data) ? data : [];
+      if (!Array.isArray(data)) throw new Error("Invalid scheduler response");
+      return data;
     },
   });
 }

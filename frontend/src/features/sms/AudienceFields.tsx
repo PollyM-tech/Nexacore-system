@@ -2,7 +2,7 @@ import { Select, TextInput } from "flowbite-react";
 import { CustomerSearchSelect } from "@/features/payments/CustomerSearchSelect";
 import { API } from "@/shared/api/endpoints";
 import { FormField } from "@/shared/components/ui/FormField";
-import { usePaginatedList } from "@/shared/hooks/usePaginatedList";
+import { useAdminOptions as usePaginatedList } from "@/features/admin/useAdminOptions";
 import type { Zone } from "@/shared/types/api";
 
 export type ComposeState = {
@@ -29,14 +29,14 @@ export function AudienceFields({ state, update }: Props) {
   const { data: zones = [] } = usePaginatedList<Zone>("zones", API.zones);
   return (
     <>
-      <FormField label="Send to" required>
-        <Select value={state.audience} onChange={(e) => update({ audience: e.target.value })}>
+      <FormField label="Send to" htmlFor="audiencefields-send-to" required>
+        <Select id="audiencefields-send-to" value={state.audience} onChange={(e) => update({ audience: e.target.value })}>
           {AUDIENCES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </Select>
       </FormField>
       {state.audience === "single" ? (
-        <FormField label="Mobile number" required>
-          <TextInput value={state.mobile} onChange={(e) => update({ mobile: e.target.value })} placeholder="01XXXXXXXXX" />
+        <FormField label="Mobile number" htmlFor="audiencefields-mobile-number" required>
+          <TextInput id="audiencefields-mobile-number" value={state.mobile} onChange={(e) => update({ mobile: e.target.value })} required placeholder="2547XXXXXXXX" />
         </FormField>
       ) : null}
       {state.audience === "customer" ? (
@@ -45,8 +45,8 @@ export function AudienceFields({ state, update }: Props) {
         </FormField>
       ) : null}
       {state.audience === "zone" ? (
-        <FormField label="Zone" required>
-          <Select value={state.zone} onChange={(e) => update({ zone: e.target.value })}>
+        <FormField label="Zone" htmlFor="audiencefields-zone" required>
+          <Select id="audiencefields-zone" value={state.zone} onChange={(e) => update({ zone: e.target.value })}>
             <option value="">Select a zone…</option>
             {zones.map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}
           </Select>

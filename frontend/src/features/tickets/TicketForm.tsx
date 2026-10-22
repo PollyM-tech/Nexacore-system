@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { FormField } from "@/shared/components/ui/FormField";
 import { FormModal } from "@/shared/components/ui/FormModal";
 import { API } from "@/shared/api/endpoints";
-import { usePaginatedList } from "@/shared/hooks/usePaginatedList";
+import { useAdminOptions as usePaginatedList } from "@/features/admin/useAdminOptions";
 
 const EMPTY = { customer: "", title: "", priority: "medium", description: "" };
 
@@ -24,7 +24,7 @@ type CustomerOption = {
 export function TicketForm({ open, onClose, onSubmit, submitting, error }: Props) {
   const [f, setF] = useState({ ...EMPTY });
   const set = (k: keyof typeof EMPTY) => (e: { target: { value: string } }) => setF((p) => ({ ...p, [k]: e.target.value }));
-  const customers = usePaginatedList<CustomerOption>("customer-options", API.customers);
+  const customers = usePaginatedList<CustomerOption>("customers", API.customers);
 
   useEffect(() => {
     if (open) setF({ ...EMPTY });
@@ -42,28 +42,28 @@ export function TicketForm({ open, onClose, onSubmit, submitting, error }: Props
 
   return (
     <FormModal open={open} onClose={onClose} title="New ticket"
-      onSubmit={submit} submitting={submitting} error={error} submitLabel="Create">
-      <FormField label="Customer" required>
-        <Select required value={f.customer} onChange={set("customer")}>
+      onSubmit={submit} submitting={submitting} submitDisabled={customers.isLoading || customers.isError} error={error ?? (customers.isError ? "Customer choices unavailable. Close and retry." : null)} submitLabel="Create">
+      <FormField label="Customer" htmlFor="ticketform-customer" required>
+        <Select id="ticketform-customer" disabled={customers.isLoading || customers.isError} required value={f.customer} onChange={set("customer")}>
           <option value="">Select customer</option>
           {customers.data?.map((c) => (
             <option key={c.id} value={c.id}>{c.customer_name} · {c.customer_id}</option>
           ))}
         </Select>
       </FormField>
-      <FormField label="Priority">
-        <Select value={f.priority} onChange={set("priority")}>
+      <FormField label="Priority" htmlFor="ticketform-priority">
+        <Select id="ticketform-priority" value={f.priority} onChange={set("priority")}>
           <option value="low">Low</option>
           <option value="medium">Medium</option>
           <option value="high">High</option>
           <option value="urgent">Urgent</option>
         </Select>
       </FormField>
-      <FormField label="Subject" required full>
-        <TextInput required value={f.title} onChange={set("title")} placeholder="e.g. Frequent disconnection at night" />
+      <FormField label="Subject" htmlFor="ticketform-subject" required full>
+        <TextInput id="ticketform-subject" required value={f.title} onChange={set("title")} placeholder="e.g. Frequent disconnection at night" />
       </FormField>
-      <FormField label="Description" required full>
-        <Textarea required rows={3} value={f.description} onChange={set("description")} placeholder="Describe the issue reported by the customer…" />
+      <FormField label="Description" htmlFor="ticketform-description" required full>
+        <Textarea id="ticketform-description" required rows={3} value={f.description} onChange={set("description")} placeholder="Describe the issue reported by the customer…" />
       </FormField>
     </FormModal>
   );

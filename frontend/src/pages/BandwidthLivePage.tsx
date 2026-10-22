@@ -5,8 +5,8 @@ export function BandwidthLivePage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Live PPPoE Usage Dashboard"
-        description="Real-time bandwidth parsing directly from active RouterOS API connections."
+        title="Live Sessions"
+        description="Separate RouterOS observations and RADIUS accounting for source-aware connection monitoring."
       />
       <LiveUsageView />
     </div>

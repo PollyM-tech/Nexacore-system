@@ -39,8 +39,8 @@ export function OltDeviceForm({ open, onClose, initial, onSubmit, submitting, er
       name: initial.name ?? "", host: initial.host ?? "",
       telnet_port: String(initial.telnet_port ?? 23), web_port: String(initial.web_port ?? 80),
       protocol: initial.protocol ?? "http", olt_type: initial.olt_type ?? "BDCOM_EPON",
-      telnet_username: initial.telnet_username ?? "", telnet_password: initial.telnet_password ?? "",
-      snmp_community: initial.snmp_community ?? "public", snmp_port: String(initial.snmp_port ?? 161),
+      telnet_username: initial.telnet_username ?? "", telnet_password: "",
+      snmp_community: "", snmp_port: String(initial.snmp_port ?? 161),
       timeout: String(initial.timeout ?? 10),
     } : { ...EMPTY });
   }, [open, initial]);
@@ -51,8 +51,9 @@ export function OltDeviceForm({ open, onClose, initial, onSubmit, submitting, er
       name: f.name.trim(), host: f.host.trim(),
       telnet_port: Number(f.telnet_port) || 23, web_port: Number(f.web_port) || 80,
       protocol: f.protocol, olt_type: f.olt_type,
-      telnet_username: f.telnet_username, telnet_password: f.telnet_password,
-      snmp_community: f.snmp_community, snmp_port: Number(f.snmp_port) || 161, timeout: Number(f.timeout) || 10,
+      telnet_username: f.telnet_username,
+      ...(!initial || f.telnet_password ? {telnet_password:f.telnet_password} : {}),
+      ...(!initial || f.snmp_community ? {snmp_community:f.snmp_community} : {}), snmp_port: Number(f.snmp_port) || 161, timeout: Number(f.timeout) || 10,
     });
   };
 
@@ -60,26 +61,26 @@ export function OltDeviceForm({ open, onClose, initial, onSubmit, submitting, er
     <FormModal open={open} onClose={onClose} title={initial ? "Edit OLT" : "Register New OLT"}
       onSubmit={submit} submitting={submitting} error={error}
       submitLabel={initial ? "Save" : "Add OLT"} cancelLabel="Close">
-      <FormField label="OLT Name" required full>
-        <TextInput required value={f.name} onChange={set("name")} placeholder="e.g. Core OLT 1" />
+      <FormField label="OLT Name" htmlFor="oltdeviceform-olt-name" required full>
+        <TextInput id="oltdeviceform-olt-name" required value={f.name} onChange={set("name")} placeholder="e.g. Core OLT 1" />
       </FormField>
-      <FormField label="IP Address" required>
-        <TextInput required value={f.host} onChange={set("host")} placeholder="e.g. 192.168.1.100" />
+      <FormField label="IP Address" htmlFor="oltdeviceform-ip-address" required>
+        <TextInput id="oltdeviceform-ip-address" required value={f.host} onChange={set("host")} placeholder="e.g. 192.168.1.100" />
       </FormField>
-      <FormField label="Telnet Port">
-        <TextInput type="number" value={f.telnet_port} onChange={set("telnet_port")} placeholder="23" />
+      <FormField label="Telnet Port" htmlFor="oltdeviceform-telnet-port">
+        <TextInput id="oltdeviceform-telnet-port" type="number" value={f.telnet_port} onChange={set("telnet_port")} placeholder="23" />
       </FormField>
-      <FormField label="Web Port">
-        <TextInput type="number" value={f.web_port} onChange={set("web_port")} placeholder="80" />
+      <FormField label="Web Port" htmlFor="oltdeviceform-web-port">
+        <TextInput id="oltdeviceform-web-port" type="number" value={f.web_port} onChange={set("web_port")} placeholder="80" />
       </FormField>
-      <FormField label="Protocol">
-        <Select value={f.protocol} onChange={set("protocol")}>
+      <FormField label="Protocol" htmlFor="oltdeviceform-protocol">
+        <Select id="oltdeviceform-protocol" value={f.protocol} onChange={set("protocol")}>
           <option value="http">HTTP</option>
           <option value="https">HTTPS</option>
         </Select>
       </FormField>
-      <FormField label="OLT Brand & Technology Type" required full>
-        <Select required value={f.olt_type} onChange={set("olt_type")}>
+      <FormField label="OLT Brand & Technology Type" htmlFor="oltdeviceform-olt-brand-technology-type" required full>
+        <Select id="oltdeviceform-olt-brand-technology-type" required value={f.olt_type} onChange={set("olt_type")}>
           {OLT_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </Select>
       </FormField>
@@ -87,26 +88,26 @@ export function OltDeviceForm({ open, onClose, initial, onSubmit, submitting, er
       <div className="mt-2 border-t border-slate-200 pt-3 sm:col-span-2 dark:border-slate-700">
         <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Access Credentials</h3>
       </div>
-      <FormField label="Telnet User">
-        <TextInput value={f.telnet_username} onChange={set("telnet_username")} placeholder="admin" />
+      <FormField label="Telnet User" htmlFor="oltdeviceform-telnet-user">
+        <TextInput id="oltdeviceform-telnet-user" value={f.telnet_username} onChange={set("telnet_username")} placeholder="admin" />
       </FormField>
-      <FormField label="Telnet Password">
-        <TextInput type={showPass ? "text" : "password"} value={f.telnet_password} onChange={set("telnet_password")}
-          placeholder="password"
+      <FormField label="Telnet Password" htmlFor="oltdeviceform-telnet-password">
+        <TextInput id="oltdeviceform-telnet-password" type={showPass ? "text" : "password"} value={f.telnet_password} onChange={set("telnet_password")}
+          placeholder={initial ? "Leave blank to keep current" : "Password"}
           rightIcon={() => (
-            <button type="button" onClick={() => setShowPass((s) => !s)} className="pointer-events-auto text-slate-400 hover:text-slate-600">
+            <button type="button" aria-label={showPass ? "Hide password" : "Show password"} onClick={() => setShowPass((s) => !s)} className="pointer-events-auto text-slate-400 hover:text-slate-600">
               <Icon name={showPass ? "eyeOff" : "eye"} className="h-4 w-4" />
             </button>
           )} />
       </FormField>
-      <FormField label="SNMP Read Community">
-        <TextInput value={f.snmp_community} onChange={set("snmp_community")} placeholder="public" />
+      <FormField label="SNMP Read Community" htmlFor="oltdeviceform-snmp-read-community">
+        <TextInput id="oltdeviceform-snmp-read-community" type="password" value={f.snmp_community} onChange={set("snmp_community")} placeholder={initial ? "Leave blank to keep current" : "SNMP community"} />
       </FormField>
-      <FormField label="SNMP Port">
-        <TextInput type="number" value={f.snmp_port} onChange={set("snmp_port")} placeholder="161" />
+      <FormField label="SNMP Port" htmlFor="oltdeviceform-snmp-port">
+        <TextInput id="oltdeviceform-snmp-port" type="number" value={f.snmp_port} onChange={set("snmp_port")} placeholder="161" />
       </FormField>
-      <FormField label="Timeout (s)">
-        <TextInput type="number" value={f.timeout} onChange={set("timeout")} placeholder="10" />
+      <FormField label="Timeout (s)" htmlFor="oltdeviceform-timeout-s">
+        <TextInput id="oltdeviceform-timeout-s" type="number" value={f.timeout} onChange={set("timeout")} placeholder="10" />
       </FormField>
     </FormModal>
   );

@@ -1,4 +1,5 @@
 import { Alert, Button, Label, TextInput } from "flowbite-react";
+import { Link } from "react-router-dom";
 import { useState } from "react";
 import { useLogin } from "@/features/auth/useLogin";
 
@@ -28,7 +29,7 @@ export function LoginForm() {
       <form className="mt-6 flex flex-col gap-4" onSubmit={submit}>
         <div>
           <Label htmlFor="email" className="mb-1.5 block">Email</Label>
-          <TextInput id="email" type="email" required placeholder="admin@netpulse.io" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <TextInput id="email" type="email" required placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
         </div>
         <div>
           <Label htmlFor="password" className="mb-1.5 block">Password</Label>
@@ -38,6 +39,10 @@ export function LoginForm() {
           {login.isPending ? "Signing in…" : "Sign in"}
         </Button>
       </form>
+      <nav aria-label="Other sign-in options" className="mt-6 flex flex-wrap justify-between gap-3 text-sm font-semibold text-brand-700">
+        <Link to="/portal/login" className="hover:underline">Customer login</Link>
+        <Link to="/superadmin" className="hover:underline">Superadmin access</Link>
+      </nav>
     </div>
   );
 }

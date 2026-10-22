@@ -4,7 +4,7 @@ export const ispTheme = createTheme({
   button: {
     color: {
       primary:
-        "bg-brand-600 text-white hover:bg-brand-700 focus:ring-4 focus:ring-brand-200 dark:focus:ring-brand-800",
+        "bg-accent-600 text-white hover:bg-accent-700 focus:ring-4 focus:ring-brand-200 dark:focus:ring-brand-800 shadow-sm transition-colors disabled:opacity-50",
       light:
         "border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700",
     },

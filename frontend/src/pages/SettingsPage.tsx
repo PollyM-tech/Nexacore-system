@@ -1,4 +1,4 @@
-import { Avatar, Button, DarkThemeToggle } from "flowbite-react";
+import { Alert, Avatar, Button, DarkThemeToggle } from "flowbite-react";
 import { useLogout } from "@/features/auth/useLogout";
 import { useSession } from "@/features/auth/useSession";
 import { Icon } from "@/shared/components/icons/Icon";
@@ -28,23 +28,25 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 export function SettingsPage() {
   const { user, isLoading } = useSession();
   const logout = useLogout();
-  const email = user?.email ?? "admin@netpulse.io";
+  const email = user?.email || "Unavailable";
 
   return (
     <>
       <PageHeader title="Settings" description="Manage your administrator account and preferences." />
+      {!isLoading && !user && <Alert color="failure">Account information is unavailable. Reload or sign in again.</Alert>}
       <div className="mx-auto grid max-w-3xl grid-cols-1 gap-5">
-        <Card title="Profile" description="Your administrator account details.">
+        <Card title="Profile" description="Your Lintech account details.">
           <div className="mb-4 flex items-center gap-4">
             <Avatar rounded size="lg" placeholderInitials={email.slice(0, 2).toUpperCase()} />
             <div className="min-w-0">
-              <p className="truncate font-semibold text-slate-900 dark:text-white">Administrator</p>
+              <p className="truncate font-semibold text-slate-900 dark:text-white">{[user?.first_name,user?.last_name].filter(Boolean).join(" ") || user?.username || "Lintech account"}</p>
               <p className="truncate text-sm text-slate-500 dark:text-slate-400">{email}</p>
             </div>
           </div>
           <Row label="Email">{isLoading ? "…" : email}</Row>
           <Row label="Account ID">{user?.pk ?? "—"}</Row>
-          <Row label="Role">Administrator</Row>
+          <Row label="Role">{[user?.is_platform_admin ? "Superadmin" : null, user?.membership?.role_label].filter(Boolean).join(" · ") || "Not supplied by the account API"}</Row>
+          {user?.membership && <Row label="Organization">{user.membership.organization.name}</Row>}
         </Card>
 
         <Card title="Preferences" description="Appearance and interface options.">

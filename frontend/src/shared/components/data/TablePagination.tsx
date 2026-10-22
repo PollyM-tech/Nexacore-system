@@ -19,13 +19,14 @@ export function TablePagination({ page, totalPages, onPage, rangeLabel }: Props)
     <div className="flex flex-wrap items-center justify-between gap-3 px-1 pt-1">
       <p className="text-sm text-slate-400">{rangeLabel}</p>
       <div className="flex items-center gap-1.5">
-        <button className={btn} onClick={() => onPage(page - 1)} disabled={page <= 1}>
+        <button type="button" className={btn} onClick={() => onPage(page - 1)} disabled={page <= 1}>
           Prev
         </button>
         {pages.map((p, i) => (
           <span key={p} className="flex items-center gap-1.5">
             {i > 0 && p - pages[i - 1] > 1 ? <span className="px-1 text-slate-400">…</span> : null}
             <button
+              type="button"
               className={`${btn} ${p === page ? "border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-200" : ""}`}
               onClick={() => onPage(p)}
             >
@@ -33,7 +34,7 @@ export function TablePagination({ page, totalPages, onPage, rangeLabel }: Props)
             </button>
           </span>
         ))}
-        <button className={btn} onClick={() => onPage(page + 1)} disabled={page >= totalPages}>
+        <button type="button" className={btn} onClick={() => onPage(page + 1)} disabled={page >= totalPages}>
           Next
         </button>
       </div>

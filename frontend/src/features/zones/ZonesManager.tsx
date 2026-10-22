@@ -4,17 +4,17 @@ import { zoneColumns } from "@/features/zones/zoneColumns";
 import { ZoneForm } from "@/features/zones/ZoneForm";
 import { API } from "@/shared/api/endpoints";
 import type { Column } from "@/shared/components/data/DataTable";
-import { ResourceList } from "@/shared/components/data/ResourceList";
+import { AdminResourceList as ResourceList } from "@/features/admin/AdminResourceList";
 import { Icon } from "@/shared/components/icons/Icon";
 import { IconButton, RowActions } from "@/shared/components/ui/RowActions";
-import { useCrud } from "@/shared/hooks/useCrud";
+import { useAdminCrud as useCrud } from "@/features/admin/useAdminCrud";
 import { apiError } from "@/shared/utils/apiError";
 import type { Zone } from "@/shared/types/api";
 
 export function ZonesManager() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Zone | null>(null);
-  const { create, update, remove } = useCrud("zones", API.zones);
+  const { create, update } = useCrud("zones", API.zones);
 
   const close = () => setOpen(false);
 
@@ -30,8 +30,7 @@ export function ZonesManager() {
       render: (z) => (
         <RowActions>
           <IconButton icon="edit" label="Edit" onClick={() => { setEditing(z); setOpen(true); }} />
-          <IconButton icon="trash" label="Delete" tone="danger"
-            onClick={() => window.confirm(`Delete zone "${z.name}"?`) && remove.mutate(z.id)} />
+
         </RowActions>
       ),
     },
@@ -39,6 +38,7 @@ export function ZonesManager() {
 
   return (
     <>
+      <p className="mb-4 text-sm text-slate-500">Zone deletion is unavailable because deleting a zone can delete assigned customers. Zones have no active/inactive field.</p>
       <ResourceList<Zone>
         queryKey="zones" url={API.zones} columns={columns} rowKey={(r) => r.id}
         searchPlaceholder="Search zones…" emptyTitle="No zones yet"

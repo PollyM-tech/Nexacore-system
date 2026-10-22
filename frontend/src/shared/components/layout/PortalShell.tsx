@@ -31,11 +31,12 @@ export function PortalShell() {
           ))}
         </nav>
         <div className="flex items-center gap-2">
-          <span className="hidden text-sm font-medium text-slate-600 sm:block dark:text-slate-300">
-            {data?.customer_name ?? "Customer"}
+          <span className="max-w-32 truncate text-sm font-medium text-slate-600 dark:text-slate-300">
+            {data?.customer_name ?? "Customer"}<span className="block text-xs text-slate-500 dark:text-slate-400">Customer</span>
           </span>
+
           <DarkThemeToggle className="rounded-lg" />
-          <button
+        <button
             onClick={() => logout.mutate()}
             className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
             aria-label="Sign out"

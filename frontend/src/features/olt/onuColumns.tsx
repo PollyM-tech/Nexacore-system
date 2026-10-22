@@ -1,10 +1,12 @@
 import type { Column } from "@/shared/components/data/DataTable";
 import { StatusBadge } from "@/shared/components/ui/StatusBadge";
+import { dateTime } from "@/shared/utils/format";
 import type { Onu } from "@/shared/types/api";
 
 function Signal({ dbm }: { dbm?: string | null }) {
   if (dbm === null || dbm === undefined || dbm === "") return <span className="text-slate-400">—</span>;
   const v = Number(dbm);
+  if (!Number.isFinite(v)) return <span>Unavailable</span>;
   const tone = v >= -25 && v <= -8 ? "text-emerald-600" : v > -28 ? "text-amber-600" : "text-rose-600";
   return <span className={`font-semibold tabular-nums ${tone}`}>{v.toFixed(2)} dBm</span>;
 }
@@ -22,6 +24,9 @@ export const onuColumns: Column<Onu>[] = [
   { key: "olt", header: "OLT", render: (r) => <span className="text-sm">{r.olt_name}</span> },
   { key: "port", header: "PON port", render: (r) => <span className="font-mono text-sm">{r.pon_port || "—"}</span> },
   { key: "rx", header: "Rx power", align: "right", render: (r) => <Signal dbm={r.rx_power} /> },
+  { key: "tx", header: "Tx power", render: r => <Signal dbm={r.tx_power} /> },
+  { key: "model", header: "Model", render: r => r.onu_model || "—" },
+  { key: "seen", header: "Last seen", render: r => dateTime(r.last_seen) },
   { key: "status", header: "Status", render: (r) => <StatusBadge status={r.status} /> },
   {
     key: "customer", header: "Customer",

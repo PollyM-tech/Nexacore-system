@@ -14,7 +14,7 @@ export type DashboardSummary = {
   packages: Counts;
   routers: Counts;
   tickets: { total: number; open: number; in_progress: number; resolved: number; closed: number };
-  revenue: { billed: number; collected: number; outstanding: number; collection_rate: number; today: number };
+  revenue: { billed: number; collected: number; outstanding: number; collection_rate: number; today: number; received: { today: number; week: number; month: number } };
   monthly: { month: number; billed: number; collected: number; due: number }[];
   yearly: { year: number; billed: number; collected: number }[];
 };
@@ -27,6 +27,7 @@ export type DashboardView = Omit<DashboardSummary, "monthly" | "yearly"> & {
 export function useDashboardSummary() {
   return useQuery({
     queryKey: ["dashboard-summary"],
+    refetchInterval: 60_000,
     queryFn: async (): Promise<DashboardView> => {
       const { data } = await api.get<DashboardSummary>(API.reports.dashboard);
       return {

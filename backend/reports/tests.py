@@ -448,3 +448,137 @@ class ReportRolePermissionTests(TestCase):
         self._assert_can_view_report(
             self.support
         )
+
+class ReportReceivedIncomeTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.org = Organization.objects.create(name="Receipts", slug="receipts", is_active=True)
+        cls.other = Organization.objects.create(name="Other", slug="other", is_active=True)
+        cls.user = User.objects.create_user(username="receipts-admin")
+        OrganizationMembership.objects.create(organization=cls.org, user=cls.user, role="owner", is_active=True)
+        cls.customers = []
+        for org in (cls.org, cls.other):
+            zone = AddressZone.objects.create(organization=org, name="Zone")
+            cls.customers.append(CustomerProfile.objects.create(
+                organization=org, customer_id="R1", customer_name="Receipt customer",
+                phone_number="0711000000", address="Test", zone=zone,
+            ))
+
+    def setUp(self):
+        from datetime import datetime
+        from unittest.mock import patch
+        from zoneinfo import ZoneInfo
+        from django.utils import timezone
+        # Wednesday just after Nairobi midnight, still Tuesday in UTC.
+        self.now = datetime(2026, 10, 14, 0, 30, tzinfo=ZoneInfo("Africa/Nairobi"))
+        override = timezone.override(self.now.tzinfo)
+        override.__enter__()
+        self.addCleanup(override.__exit__, None, None, None)
+        clock = patch("reports.services.timezone.now", return_value=self.now)
+        clock.start()
+        self.addCleanup(clock.stop)
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+
+    def payment(self, amount="100.25", method="cash", at=None, other=False):
+        row = PaymentTransaction.objects.create(
+            customer=self.customers[int(other)], amount=Decimal(amount), payment_method=method,
+        )
+        PaymentTransaction.objects.filter(pk=row.pk).update(created_at=at or self.now)
+
+    def received(self):
+        response = self.client.get("/api/reports/dashboard/")
+        self.assertEqual(response.status_code, 200)
+        return response.json()["revenue"]["received"]
+
+    def test_today_positive_cash(self):
+        self.payment()
+        self.assertEqual(self.received(), dict(today=100.25, week=100.25, month=100.25))
+
+    def test_today_positive_mpesa(self):
+        self.payment(method="mpesa")
+        self.assertEqual(self.received()["today"], 100.25)
+
+    def test_other_actual_payment_methods(self):
+        for method in ("bank_transfer", "card", "other"):
+            self.payment(method=method)
+        self.assertEqual(self.received()["today"], 300.75)
+
+    def test_positive_adjustment_excluded(self):
+        self.payment(method="adjustment")
+        self.assertEqual(self.received(), dict(today=0, week=0, month=0))
+
+    def test_negative_adjustment_excluded(self):
+        self.payment(amount="-100.25", method="adjustment")
+        self.assertEqual(self.received(), dict(today=0, week=0, month=0))
+
+    def test_zero_and_negative_payment_excluded(self):
+        self.payment(amount="0")
+        self.payment(amount="-100.25")
+        self.assertEqual(self.received(), dict(today=0, week=0, month=0))
+
+    def test_previous_local_day_excluded_from_today(self):
+        from datetime import timedelta
+        self.payment(at=self.now - timedelta(hours=1))
+        self.assertEqual(self.received(), dict(today=0, week=100.25, month=100.25))
+
+    def test_current_week_monday_inclusive(self):
+        self.payment(at=self.now.replace(day=12, hour=0, minute=0))
+        self.assertEqual(self.received()["week"], 100.25)
+
+    def test_before_current_week_excluded(self):
+        from datetime import timedelta
+        monday = self.now.replace(day=12, hour=0, minute=0)
+        self.payment(at=monday - timedelta(microseconds=1))
+        self.assertEqual(self.received(), dict(today=0, week=0, month=100.25))
+
+    def test_current_month_start_inclusive(self):
+        self.payment(at=self.now.replace(day=1, hour=0, minute=0))
+        self.assertEqual(self.received()["month"], 100.25)
+
+    def test_before_current_month_excluded(self):
+        from datetime import timedelta
+        start = self.now.replace(day=1, hour=0, minute=0)
+        self.payment(at=start - timedelta(microseconds=1))
+        self.assertEqual(self.received(), dict(today=0, week=0, month=0))
+
+    def test_other_organization_excluded(self):
+        self.payment(other=True)
+        self.assertEqual(self.received(), dict(today=0, week=0, month=0))
+
+    def test_today_start_inclusive_future_excluded(self):
+        from datetime import timedelta
+        self.payment(at=self.now.replace(hour=0, minute=0))
+        self.payment(at=self.now + timedelta(microseconds=1))
+        self.assertEqual(self.received(), dict(today=100.25, week=100.25, month=100.25))
+
+    def test_week_crosses_month_boundary(self):
+        from unittest.mock import patch
+        now = self.now.replace(month=5, day=1, hour=12)
+        self.payment(at=now.replace(month=4, day=30))
+        with patch("reports.services.timezone.now", return_value=now):
+            self.assertEqual(self.received(), dict(today=0, week=100.25, month=0))
+
+    def test_empty_periods_and_single_aggregate_query(self):
+        from reports.services import ReportService
+        with self.assertNumQueries(1):
+            self.assertEqual(ReportService._received_income(self.org), dict(today=0, week=0, month=0))
+
+    def test_legacy_revenue_behavior_preserved(self):
+        from unittest.mock import patch
+        for amount, method in (("100", "cash"), ("50", "adjustment"), ("-20", "adjustment")):
+            self.payment(amount=amount, method=method, at=self.now.replace(hour=12))
+        MonthlyBill.objects.create(
+            customer=self.customers[0], package_name="Test", package_price=Decimal("1000"),
+            billing_month=10, billing_year=2026, invoice_date=date(2026, 10, 1),
+            total_amount=Decimal("1000"), paid_amount=Decimal("400"), payment_status="partial",
+        )
+        with patch("reports.services.date") as legacy_date:
+            legacy_date.today.return_value = date(2026, 10, 14)
+            revenue = self.client.get("/api/reports/dashboard/").json()["revenue"]
+        self.assertEqual(
+            {key: revenue[key] for key in ("billed", "collected", "outstanding", "collection_rate", "today")},
+            dict(billed=1000, collected=400, outstanding=600, collection_rate=40, today=130),
+        )
+        # Future entries contribute to the legacy whole-day sum but not the new totals.
+        self.assertEqual(revenue["received"], dict(today=0, week=0, month=0))

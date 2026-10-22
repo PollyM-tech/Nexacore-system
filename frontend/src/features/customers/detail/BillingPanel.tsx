@@ -1,38 +1,23 @@
 import { Button } from "flowbite-react";
 import { useState } from "react";
-import { BillingSettingsModal } from "@/features/customers/detail/BillingSettingsModal";
-import { DetailCard, InfoRow } from "@/features/customers/detail/InfoRow";
-import { Icon } from "@/shared/components/icons/Icon";
-import { money } from "@/shared/utils/format";
+import { BillingSettingsModal } from "./BillingSettingsModal";
+import { DetailCard, InfoRow } from "./InfoRow";
+import { useCustomerOptions } from "../useCustomerOptions";
+import { kes } from "@/shared/utils/format";
 import type { CustomerDetail } from "@/shared/types/api";
-
-export function BillingPanel({ customer }: { customer: CustomerDetail }) {
+export function BillingPanel({ customer: c }: { customer: CustomerDetail }) {
   const [open, setOpen] = useState(false);
-  const s = customer.billing_summary;
-  const balance = Number(customer.balance);
-  const day = customer.billing_date ? new Date(customer.billing_date).getDate() : null;
-
-  return (
-    <DetailCard title="Billing">
-      <div className="mb-3 rounded-xl bg-slate-50 p-4 dark:bg-ink-800/60">
-        <p className="text-xs text-slate-400">Account balance</p>
-        <p className={`text-2xl font-bold ${balance < 0 ? "text-rose-600" : "text-emerald-600"}`}>
-          {balance < 0 ? "−" : ""}{money(Math.abs(balance))}
-        </p>
-      </div>
-      <InfoRow label="Billing day">{day ? `Day ${day} of each month` : "—"}</InfoRow>
-      <InfoRow label="Extended days">{customer.extended_billing_days ?? 0}</InfoRow>
-      {s ? (
-        <>
-          <InfoRow label="Total billed">{money(s.total_billed)}</InfoRow>
-          <InfoRow label="Total paid">{money(s.total_paid)}</InfoRow>
-          <InfoRow label="Outstanding"><span className="text-rose-600">{money(s.pending_amount)}</span></InfoRow>
-        </>
-      ) : null}
-      <Button color="light" size="sm" className="mt-3 w-full" onClick={() => setOpen(true)}>
-        <Icon name="calendar" className="mr-2 h-4 w-4" /> Change billing day / extend
-      </Button>
-      <BillingSettingsModal open={open} onClose={() => setOpen(false)} customer={customer} />
-    </DetailCard>
-  );
+  const options = useCustomerOptions();
+  const pkg = options.packages.find((p) => p.id === c.package);
+  const s = c.billing_summary;
+  return <DetailCard title="Subscription and billing">
+    <InfoRow label="Package">{c.package_name || "Unassigned"}</InfoRow><InfoRow label="Package price">{c.package_price ? kes(c.package_price) : "—"}</InfoRow><InfoRow label="Package speed">{pkg?.speed || (options.isLoading ? "Loading…" : "Unavailable")}</InfoRow>
+    <InfoRow label="Billing date">{c.billing_date || "—"}</InfoRow><InfoRow label="Extended / grace days">{c.extended_billing_days ?? 0}</InfoRow>
+    <InfoRow label="Account balance"><span className={Number(c.balance) < 0 ? "text-rose-600" : ""}>{kes(c.balance)}</span></InfoRow>
+    <p className="my-2 text-xs text-slate-500">Negative balance indicates money due; positive balance is account credit.</p>
+    {s ? <><InfoRow label="Total billed">{kes(s.total_billed)}</InfoRow><InfoRow label="Allocated to invoices">{kes(s.total_paid)}</InfoRow><InfoRow label="Invoice outstanding">{kes(s.pending_amount)}</InfoRow></> : null}
+    {c.router_info?.authentication_mode === "radius" ? <p className="mt-3 text-xs text-slate-500">Package changes apply to the RADIUS rate limit on the next reauthentication. Use Edit customer to change the package.</p> : null}
+    <Button color="light" size="sm" className="mt-4" onClick={() => setOpen(true)}>Change billing schedule</Button>
+    {open ? <BillingSettingsModal open onClose={() => setOpen(false)} customer={c} /> : null}
+  </DetailCard>;
 }

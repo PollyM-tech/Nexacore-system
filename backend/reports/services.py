@@ -1,6 +1,7 @@
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 
 from django.db.models import Count, Q, Sum
+from django.utils import timezone
 
 from billing.models import (
     ConnectionFee,
@@ -179,6 +180,41 @@ class ReportService:
         return _f(agg["total"])
 
     @staticmethod
+    def _received_income(organization):
+        """Positive payment receipts posted in the current Django timezone.
+
+        Ledger adjustments and invoice allocations are not received income.
+        Capture one instant so all three periods share the same upper bound.
+        """
+        now = timezone.now()
+        current_timezone = timezone.get_current_timezone()
+        today = timezone.localdate(now, current_timezone)
+        dates = {
+            "today": today,
+            "week": today - timedelta(days=today.weekday()),
+            "month": today.replace(day=1),
+        }
+        starts = {
+            period: timezone.make_aware(
+                datetime.combine(day, time.min), current_timezone
+            )
+            for period, day in dates.items()
+        }
+        totals = PaymentTransaction.objects.filter(
+            customer__organization=organization,
+            amount__gt=0,
+            payment_method__in=(
+                "cash", "mpesa", "bank_transfer", "card", "other",
+            ),
+            created_at__gte=min(starts.values()),
+            created_at__lte=now,
+        ).aggregate(**{
+            period: Sum("amount", filter=Q(created_at__gte=start))
+            for period, start in starts.items()
+        })
+        return {period: _f(value) for period, value in totals.items()}
+
+    @staticmethod
     def dashboard_summary(organization):
         customers = ReportService._customer_breakdown(
             organization
@@ -234,6 +270,9 @@ class ReportService:
                     organization
                 ),
                 "today": ReportService._revenue_today(
+                    organization
+                ),
+                "received": ReportService._received_income(
                     organization
                 ),
             },

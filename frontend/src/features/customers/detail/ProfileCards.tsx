@@ -1,43 +1,24 @@
-import { Button } from "flowbite-react";
 import { useState } from "react";
-import { ConnectionEditModal } from "@/features/customers/detail/ConnectionEditModal";
-import { DetailCard, InfoRow } from "@/features/customers/detail/InfoRow";
-import { Icon } from "@/shared/components/icons/Icon";
-import { SecretText } from "@/shared/components/ui/SecretText";
+import { Button } from "flowbite-react";
+import { DetailCard, InfoRow } from "./InfoRow";
+import { ChangePasswordModal } from "./ChangePasswordModal";
+import { ConnectionEditModal } from "./ConnectionEditModal";
+import { AuthenticationBadge } from "../AuthenticationBadge";
+import { StatusBadge } from "@/shared/components/ui/StatusBadge";
 import type { CustomerDetail } from "@/shared/types/api";
-
-export function ProfileCards({ customer }: { customer: CustomerDetail }) {
-  const r = customer.router_info;
-  const [editing, setEditing] = useState(false);
-  return (
-    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-      <DetailCard title="Profile">
-        <InfoRow label="Phone">{customer.phone_number}</InfoRow>
-        <InfoRow label="Alt. phone">{customer.phone_number2 || "—"}</InfoRow>
-        <InfoRow label="NID">{customer.nid || "—"}</InfoRow>
-        <InfoRow label="Zone">{customer.zone_name || "—"}</InfoRow>
-        <InfoRow label="Package">{customer.package_name || "—"}</InfoRow>
-        <InfoRow label="Address">{customer.address}</InfoRow>
-      </DetailCard>
-      <DetailCard title="Connection (PPPoE)"
-        action={r ? (
-          <Button size="xs" color="light" onClick={() => setEditing(true)}>
-            <Icon name="edit" className="mr-1 h-3.5 w-3.5" /> Edit
-          </Button>
-        ) : undefined}>
-        {r ? (
-          <>
-            <InfoRow label="Router">{r.router_name || "—"}</InfoRow>
-            <InfoRow label="MikroTik profile">{r.profile_name ? <span className="font-mono">{r.profile_name}</span> : "—"}</InfoRow>
-            <InfoRow label="PPPoE name"><span className="font-mono">{r.pppoe_name}</span></InfoRow>
-            <InfoRow label="PPPoE password"><SecretText value={r.pppoe_pass} /></InfoRow>
-            <InfoRow label="Remote IP">{r.remote_ip || "—"}</InfoRow>
-          </>
-        ) : (
-          <p className="py-6 text-center text-sm text-slate-400">No PPPoE / router linked.</p>
-        )}
-      </DetailCard>
-      {r ? <ConnectionEditModal open={editing} onClose={() => setEditing(false)} customer={customer} /> : null}
-    </div>
-  );
+export function ProfileCards({ customer: c }: { customer: CustomerDetail }) {
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [connectionOpen, setConnectionOpen] = useState(false);
+  const r = c.router_info;
+  return <div className="grid min-w-0 gap-5 md:grid-cols-2">
+    <DetailCard title="Profile"><InfoRow label="Customer ID">{c.customer_id}</InfoRow><InfoRow label="Name">{c.customer_name}</InfoRow><InfoRow label="Account status"><StatusBadge status={c.customer_status} /></InfoRow><InfoRow label="Primary phone">{c.phone_number}</InfoRow><InfoRow label="Alternate phone">{c.phone_number2 || "—"}</InfoRow><InfoRow label="National ID">{c.nid || "—"}</InfoRow><InfoRow label="Address">{c.address}</InfoRow><InfoRow label="Zone">{c.zone_name || "—"}</InfoRow></DetailCard>
+    <DetailCard title="Connection"><InfoRow label="Authentication"><AuthenticationBadge mode={r?.authentication_mode} /></InfoRow>
+      {r ? <><InfoRow label="PPPoE username"><span className="break-all font-mono text-xs">{r.pppoe_name}</span></InfoRow><InfoRow label="Router">{r.router_name || "Unconfigured"}</InfoRow><InfoRow label="Profile">{r.profile_name || "—"}</InfoRow><InfoRow label="Configured remote IP">{r.remote_ip || "—"}</InfoRow>
+        <p className="mt-3 text-xs text-slate-500">Credentials are write-only. Authentication mode and username cannot be changed here. Stored remote IP is configuration metadata; live IP is shown separately.</p>
+        <div className="mt-4 flex flex-wrap gap-2">{r.authentication_mode === "radius" || r.authentication_mode === "local_secret" ? <Button color="light" size="sm" onClick={() => setPasswordOpen(true)}>Change PPPoE password</Button> : null}{r.authentication_mode === "local_secret" ? <Button color="light" size="sm" onClick={() => setConnectionOpen(true)}>Edit profile</Button> : null}</div>
+      </> : <p className="py-4 text-sm text-slate-500">No connection configured. Provisioning an existing profile requires a supported attach workflow.</p>}
+    </DetailCard>
+    {passwordOpen ? <ChangePasswordModal customerId={c.customer_id} onClose={() => setPasswordOpen(false)} /> : null}
+    {connectionOpen ? <ConnectionEditModal customer={c} onClose={() => setConnectionOpen(false)} /> : null}
+  </div>;
 }

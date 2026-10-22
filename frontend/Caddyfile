@@ -16,6 +16,8 @@
 	}
 
 	handle {
+		# Revalidate the page entry point after frontend releases.
+		header Cache-Control "no-cache, must-revalidate"
 		root * /srv
 		try_files {path} /index.html
 		file_server

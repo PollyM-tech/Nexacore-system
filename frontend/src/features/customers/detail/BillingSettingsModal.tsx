@@ -1,3 +1,4 @@
+import { invalidateCustomer } from "../customerQueryKeys";
 import { TextInput } from "flowbite-react";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -21,8 +22,7 @@ export function BillingSettingsModal({ open, onClose, customer }: Props) {
       billing_day: Number(day), extended_billing_days: Number(extended),
     }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["customer-detail", customer.customer_id] });
-      qc.invalidateQueries({ queryKey: ["customers"] });
+      void invalidateCustomer(qc, customer.customer_id);
       onClose();
     },
   });
@@ -31,11 +31,11 @@ export function BillingSettingsModal({ open, onClose, customer }: Props) {
     <FormModal open={open} onClose={onClose} title="Billing schedule"
       onSubmit={(e) => { e.preventDefault(); mut.mutate(); }} submitting={mut.isPending}
       submitLabel="Save" error={mut.isError ? apiError(mut.error) : null}>
-      <FormField label="Billing day (1–28)">
-        <TextInput type="number" min={1} max={28} value={day} onChange={(e) => setDay(e.target.value)} />
+      <FormField label="Billing day (1–28)" htmlFor="billing-day">
+        <TextInput id="billing-day" required type="number" min={1} max={28} value={day} onChange={(e) => setDay(e.target.value)} />
       </FormField>
-      <FormField label="Extended / grace days">
-        <TextInput type="number" min={0} value={extended} onChange={(e) => setExtended(e.target.value)} />
+      <FormField label="Extended / grace days" htmlFor="billing-grace">
+        <TextInput id="billing-grace" required type="number" min={0} value={extended} onChange={(e) => setExtended(e.target.value)} />
       </FormField>
     </FormModal>
   );

@@ -1,62 +1,34 @@
-import { Button } from "flowbite-react";
+import { Alert, Button } from "flowbite-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { routerColumns } from "@/features/routers/routerColumns";
-import { RouterForm } from "@/features/routers/RouterForm";
+import { Link } from "react-router-dom";
+import { routerColumns } from "./routerColumns";
+import { RouterForm } from "./RouterForm";
 import { api } from "@/shared/api/client";
 import { API } from "@/shared/api/endpoints";
 import type { Column } from "@/shared/components/data/DataTable";
-import { ResourceList } from "@/shared/components/data/ResourceList";
-import { Icon } from "@/shared/components/icons/Icon";
-import { IconButton, RowActions } from "@/shared/components/ui/RowActions";
-import { useCrud } from "@/shared/hooks/useCrud";
+import { AdminResourceList } from "@/features/admin/AdminResourceList";
+import { useAdminCrud } from "@/features/admin/useAdminCrud";
 import { apiError } from "@/shared/utils/apiError";
 import type { Router } from "@/shared/types/api";
-
 export function RoutersManager() {
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<Router | null>(null);
-  const { create, update, remove } = useCrud("routers", API.routers);
+  const [form, setForm] = useState<Router | "new" | null>(null);
+  const { create, update } = useAdminCrud("routers", API.routers);
   const qc = useQueryClient();
-
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
   const test = useMutation({
-    mutationFn: (id: number) => api.post(`${API.routers}${id}/test_connection/`),
-    onSettled: () => qc.invalidateQueries({ queryKey: ["routers"] }),
+    mutationFn: async (router: Router) => (await api.post<{status: string}>(`${API.routers}${router.id}/test_connection/`)).data,
+    onSuccess: (data, router) => setResult({ ok: data.status === "success", message: `${router.name}: ${data.status === "success" ? "API connection succeeded." : "API connection failed. Check router configuration and connectivity."}` }),
+    onError: (_, router) => setResult({ ok: false, message: `${router.name}: connection test failed. Check router connectivity or your permissions.` }),
+    onSettled: () => { void qc.invalidateQueries({queryKey:["routers"]}); void qc.invalidateQueries({queryKey:["dashboard-summary"]}); },
   });
-
-  const close = () => setOpen(false);
-
-  const onSubmit = (body: Record<string, unknown>) => {
-    if (editing) update.mutate({ id: editing.id, body }, { onSuccess: close });
-    else create.mutate(body, { onSuccess: close });
-  };
-
-  const columns: Column<Router>[] = [
-    ...routerColumns,
-    {
-      key: "actions", header: "", align: "right",
-      render: (r) => (
-        <RowActions>
-          <IconButton icon="refresh" label="Test connection" onClick={() => test.mutate(r.id)} />
-          <IconButton icon="edit" label="Edit" onClick={() => { setEditing(r); setOpen(true); }} />
-          <IconButton icon="trash" label="Delete" tone="danger"
-            onClick={() => window.confirm(`Delete router "${r.name}"?`) && remove.mutate(r.id)} />
-        </RowActions>
-      ),
-    },
-  ];
-
-  return (
-    <>
-      <ResourceList<Router>
-        queryKey="routers" url={API.routers} columns={columns} rowKey={(r) => r.id}
-        searchPlaceholder="Search routers…" emptyTitle="No routers yet"
-        emptyDescription="Add a MikroTik router to manage PPPoE users." emptyIcon="router"
-        toolbarAction={<Button color="primary" onClick={() => { setEditing(null); setOpen(true); }}><Icon name="plus" className="mr-2 h-4 w-4" /> Add router</Button>}
-      />
-      <RouterForm open={open} onClose={close} initial={editing} onSubmit={onSubmit}
-        submitting={create.isPending || update.isPending}
-        error={create.isError || update.isError ? apiError(create.error ?? update.error) : null} />
-    </>
-  );
+  const pending = create.isPending || update.isPending;
+  const close = () => { if (!pending) { setForm(null); create.reset(); update.reset(); } };
+  const columns: Column<Router>[] = [...routerColumns, { key:"actions", header:"Actions", render:r => <div className="flex flex-wrap gap-2 min-w-48"><Button size="xs" color="light" disabled={test.isPending || r.use_ssl} title={r.use_ssl ? "TLS tests unavailable: backend does not apply the stored SSL flag." : undefined} onClick={() => { setResult(null); test.mutate(r); }}>{test.isPending && test.variables?.id === r.id ? "Testing…" : "Test connection"}</Button><Button size="xs" color="light" onClick={() => { create.reset(); update.reset(); setForm(r); }}>Edit</Button><Link className="text-sm text-brand-600 underline" to={`/admin/bandwidth/live?router=${r.id}`}>Sessions</Link></div> }];
+  return <div className="space-y-4">
+    <p className="text-sm text-slate-500">Enabled is configuration state. Connection status is the last stored test result. Tests run only when requested. Router deletion is unavailable until assigned connections are protected. TLS-only setup/testing is unavailable because the backend ignores the stored SSL flag.</p>
+    {result && <Alert color={result.ok ? "success" : "failure"}>{result.message}</Alert>}
+    <AdminResourceList queryKey="routers" url={API.routers} columns={columns} rowKey={r=>r.id} emptyTitle="No routers" emptyDescription="Add a MikroTik API connection." emptyIcon="router" toolbarAction={<Button color="primary" onClick={()=>{create.reset();update.reset();setForm("new");}}>Add router</Button>} />
+    {form !== null && <RouterForm open initial={form === "new" ? null : form} onClose={close} submitting={pending} error={create.isError || update.isError ? apiError(create.error ?? update.error) : null} onSubmit={body => form === "new" ? create.mutate(body,{onSuccess:close}) : update.mutate({id:form.id,body},{onSuccess:close})} />}
+  </div>;
 }

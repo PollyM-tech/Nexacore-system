@@ -4,7 +4,7 @@ const TONE: Record<string, Tone> = {
   active: "success", connected: "success", paid: "success", resolved: "success", sent: "success", online: "success",
   disconnected: "danger", error: "danger", urgent: "danger", overdue: "danger", failed: "danger", los: "danger",
   open: "warning", pending: "warning", partial: "warning", high: "warning", queued: "warning", expired: "warning",
-  offline: "neutral", unknown: "neutral", left: "neutral",
+  disabled: "neutral", enabled: "info", offline: "neutral", unknown: "neutral", left: "neutral",
   in_progress: "info", on: "info", medium: "info", free: "info",
   closed: "neutral", off: "neutral", not_created: "neutral", inactive: "neutral", low: "neutral",
 };

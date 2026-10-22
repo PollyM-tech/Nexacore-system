@@ -1,13 +1,13 @@
-import { Button } from "flowbite-react";
+import { Alert, Button } from "flowbite-react";
 import { useState } from "react";
 import { SmsTemplateForm } from "@/features/sms/SmsTemplateForm";
 import { API } from "@/shared/api/endpoints";
 import type { Column } from "@/shared/components/data/DataTable";
-import { ResourceList } from "@/shared/components/data/ResourceList";
+import { AdminResourceList as ResourceList } from "@/features/admin/AdminResourceList";
 import { Icon } from "@/shared/components/icons/Icon";
 import { IconButton, RowActions } from "@/shared/components/ui/RowActions";
 import { StatusBadge } from "@/shared/components/ui/StatusBadge";
-import { useCrud } from "@/shared/hooks/useCrud";
+import { useAdminCrud as useCrud } from "@/features/admin/useAdminCrud";
 import { apiError } from "@/shared/utils/apiError";
 import type { SmsTemplate } from "@/shared/types/api";
 
@@ -40,6 +40,7 @@ export function SmsTemplates() {
 
   return (
     <>
+      {remove.isError && <Alert color="failure">{apiError(remove.error)}</Alert>}
       <ResourceList<SmsTemplate>
         queryKey="sms-templates" url={API.sms.templates} columns={columns} rowKey={(r) => r.id}
         searchPlaceholder="Search templates…" emptyTitle="No templates yet"

@@ -1,21 +1,20 @@
-import { Icon } from "@/shared/components/icons/Icon";
+import logo from "@/app/assets/logo.png";
 
-type Props = { compact?: boolean; /** Force light text — for surfaces that are always dark (landing, auth hero). */ onDark?: boolean };
+type Props = {
+  compact?: boolean;
+  size?: "navigation" | "sidebar" | "footer" | "login";
+};
 
-export function Brand({ compact, onDark }: Props) {
-  return (
-    <div className="flex items-center gap-3">
-      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-lg shadow-brand-600/30">
-        <Icon name="wifi" className="h-5 w-5" />
-      </div>
-      {!compact ? (
-        <div className="leading-tight">
-          <p className={`text-base font-bold tracking-tight ${onDark ? "text-white" : "text-slate-900 dark:text-white"}`}>
-            NetPulse
-          </p>
-          <p className="text-[11px] font-medium text-slate-400">ISP Control Center</p>
-        </div>
-      ) : null}
-    </div>
-  );
+export function Brand({ compact, size = "navigation" }: Props) {
+  const sizing = size === "login"
+    ? "w-56 sm:w-64 xl:w-80"
+    : size === "sidebar"
+      ? "w-6 sm:w-7"
+    : size === "footer"
+      ? "w-24 sm:w-28"
+      : compact ? "w-12" : "w-14";
+
+  // Preserve the official asset's full square canvas and opaque background.
+  return <img src={logo} alt="Lintech" width={1024} height={1024}
+    className={`block h-auto max-w-full shrink-0 object-contain ${sizing}`} />;
 }

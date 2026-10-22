@@ -1,34 +1,16 @@
 import type { Column } from "@/shared/components/data/DataTable";
 import { StatusBadge } from "@/shared/components/ui/StatusBadge";
 import type { Package } from "@/shared/types/api";
+import { kes } from "@/shared/utils/format";
 
+export const billingCycles: Record<string, string> = { monthly: "Monthly", quarterly: "Quarterly", yearly: "Yearly" };
+export const knownCount = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0;
 export const packageColumns: Column<Package>[] = [
-  {
-    key: "name",
-    header: "Package",
-    render: (r) => (
-      <div>
-        <p className="font-medium text-slate-900 dark:text-white">{r.name}</p>
-        {r.package_type ? <p className="text-xs text-slate-400">{r.package_type}</p> : null}
-      </div>
-    ),
-  },
-  {
-    key: "speed",
-    header: "Speed",
-    render: (r) =>
-      r.speed ? (
-        <span className="inline-flex items-center gap-1 font-medium text-brand-600 dark:text-brand-300">
-          {r.speed}
-        </span>
-      ) : (
-        "—"
-      ),
-  },
-  { key: "price", header: "Price", align: "right", render: (r) => <span className="font-semibold">৳{r.price}</span> },
-  {
-    key: "active",
-    header: "Status",
-    render: (r) => <StatusBadge status={r.is_active ? "active" : "inactive"} />,
-  },
+  { key: "name", header: "Package", render: (p) => <span className="font-medium text-slate-900 dark:text-white">{p.name}</span> },
+  { key: "cycle", header: "Billing cycle", render: (p) => billingCycles[p.package_type ?? ""] ?? "Unknown" },
+  { key: "speed", header: "Speed", render: (p) => <span className="whitespace-nowrap">{p.speed || "Unavailable"}</span> },
+  { key: "price", header: "Price", align: "right", render: (p) => <span className="whitespace-nowrap font-semibold">{kes(p.price)}</span> },
+  { key: "status", header: "Status", render: (p) => <StatusBadge status={p.is_active ? "active" : "inactive"} /> },
+  { key: "customers", header: "Customers", align: "right", render: (p) => knownCount(p.customer_count) ? p.customer_count : "Unavailable" },
+  { key: "radius", header: "RADIUS customers", align: "right", render: (p) => knownCount(p.radius_customer_count) ? p.radius_customer_count : "Unavailable" },
 ];

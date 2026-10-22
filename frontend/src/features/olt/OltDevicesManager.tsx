@@ -1,77 +1,28 @@
-import { Button } from "flowbite-react";
+import { Alert, Button } from "flowbite-react";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { OltCard } from "@/features/olt/OltCard";
-import { OltDeviceForm } from "@/features/olt/OltDeviceForm";
+import { OltDeviceForm } from "./OltDeviceForm";
+import { AdminResourceList } from "@/features/admin/AdminResourceList";
+import { useAdminCrud } from "@/features/admin/useAdminCrud";
 import { api } from "@/shared/api/client";
 import { API } from "@/shared/api/endpoints";
-import { ListPageSection } from "@/shared/components/data/ListPageSection";
-import { Icon } from "@/shared/components/icons/Icon";
-import { SearchField } from "@/shared/components/ui/SearchField";
-import { useCrud } from "@/shared/hooks/useCrud";
-import { useFilteredList } from "@/shared/hooks/useFilteredList";
+import type { Column } from "@/shared/components/data/DataTable";
+import { StatusBadge } from "@/shared/components/ui/StatusBadge";
+import { dateTime } from "@/shared/utils/format";
 import { apiError } from "@/shared/utils/apiError";
 import type { OltDevice } from "@/shared/types/api";
-
-type Props = { onViewOnus?: (olt: OltDevice) => void };
-
-export function OltDevicesManager({ onViewOnus }: Props) {
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<OltDevice | null>(null);
-  const { create, update, remove } = useCrud("olt-devices", API.olt.devices);
-  const { search, setSearch, query, results, total, isEmpty } = useFilteredList<OltDevice>("olt-devices", API.olt.devices);
-  const qc = useQueryClient();
-  const refresh = () => { qc.invalidateQueries({ queryKey: ["olt-devices"] }); qc.invalidateQueries({ queryKey: ["onus"] }); };
-  const close = () => setOpen(false);
-
-  const test = useMutation({
-    mutationFn: (id: number) => api.post(API.olt.testConnection(id)).then((r) => r.data),
-    onSuccess: (d) => window.alert(d.status === "online" ? `Connected.\n${d.system_info?.description ?? ""}` : d.message),
-    onError: (e) => window.alert(apiError(e)),
-    onSettled: refresh,
-  });
-
-  const onSubmit = (body: Record<string, unknown>) => {
-    if (editing) update.mutate({ id: editing.id, body }, { onSuccess: close });
-    else create.mutate(body, { onSuccess: close });
-  };
-
-  const del = (r: OltDevice) => {
-    if (window.confirm(`Delete OLT "${r.name || r.host}" and its ONUs?`)) remove.mutate(r.id);
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-            OLT Monitoring System <span className="text-slate-400">(Total: {total})</span>
-          </h2>
-        </div>
-        <Button color="primary" onClick={() => { setEditing(null); setOpen(true); }}>
-          <Icon name="plus" className="mr-2 h-4 w-4" /> Add OLT
-        </Button>
-      </div>
-      <SearchField value={search} onChange={setSearch} placeholder="Search OLTs…" />
-
-      <ListPageSection
-        isLoading={query.isLoading} isError={query.isError} isEmpty={isEmpty}
-        emptyTitle="No OLTs yet"
-        emptyDescription="Add a GPON/EPON OLT to monitor ONUs and optical signal." emptyIcon="signal">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {results.map((r) => (
-            <OltCard key={r.id} device={r} testing={test.isPending}
-              onEdit={() => { setEditing(r); setOpen(true); }}
-              onTest={() => test.mutate(r.id)}
-              onViewOnus={() => onViewOnus?.(r)}
-              onDelete={() => del(r)} />
-          ))}
-        </div>
-      </ListPageSection>
-
-      <OltDeviceForm open={open} onClose={close} initial={editing} onSubmit={onSubmit}
-        submitting={create.isPending || update.isPending}
-        error={create.isError || update.isError ? apiError(create.error ?? update.error) : null} />
-    </div>
-  );
+export function OltDevicesManager({onViewOnus}: {onViewOnus?:(olt:OltDevice)=>void}) {
+ const [form,setForm]=useState<OltDevice | "new" | null>(null);const {create,update}=useAdminCrud("olt-devices",API.olt.devices);const qc=useQueryClient();const [result,setResult]=useState<{ok:boolean;text:string}|null>(null);
+ const test=useMutation({mutationFn:async(id:number)=>(await api.post<{status:string}>(API.olt.testConnection(id))).data,onSuccess:d=>setResult({ok:d.status==="online",text:d.status==="online"?"SNMP connection succeeded.":"SNMP connection failed. Check connectivity and configuration."}),onError:()=>setResult({ok:false,text:"SNMP test unavailable or failed. Check connectivity and permissions."}),onSettled:()=>qc.invalidateQueries({queryKey:["olt-devices"]})});
+ const close=()=>{setForm(null);create.reset();update.reset();};
+ const columns:Column<OltDevice>[]=[
+ {key:"name",header:"OLT",render:r=><div>{r.name}<p className="text-xs">{r.host} · {r.olt_type}</p></div>},
+ {key:"enabled",header:"Configuration",render:r=>r.is_active?"Enabled":"Disabled"},
+ {key:"status",header:"Stored SNMP status",render:r=><StatusBadge status={r.status || "unknown"} />},
+ {key:"checked",header:"Last checked",render:r=>dateTime(r.last_checked)},
+ {key:"count",header:"Stored ONUs",render:r=>r.onu_count ?? "Unavailable"},
+ {key:"actions",header:"Actions",render:r=><div className="flex gap-2"><Button size="xs" color="light" onClick={()=>{create.reset();update.reset();setForm(r);}}>Edit</Button><Button size="xs" color="light" disabled={test.isPending} onClick={()=>{setResult(null);test.mutate(r.id);}}>{test.isPending && test.variables===r.id?"Testing…":"Test SNMP"}</Button><Button size="xs" color="light" onClick={()=>onViewOnus?.(r)}>ONUs</Button></div>},
+ ];
+ return <div className="space-y-4"><p className="text-sm text-slate-500">Stored inventory and last SNMP check, not continuously live telemetry. Device deletion is hidden to protect stored ONUs.</p>{result && <Alert color={result.ok?"success":"failure"}>{result.text}</Alert>}<AdminResourceList queryKey="olt-devices" url={API.olt.devices} columns={columns} rowKey={r=>r.id} searchPlaceholder="Search OLT name or host" emptyTitle="No OLT devices" emptyDescription="Register an OLT to read SNMP inventory." toolbarAction={<Button onClick={()=>{create.reset();update.reset();setForm("new");}}>Add OLT</Button>} />
+ {form!==null && <OltDeviceForm open initial={form==="new"?null:form} onClose={()=>{if(!create.isPending&&!update.isPending)close();}} submitting={create.isPending||update.isPending} error={create.isError||update.isError?apiError(create.error??update.error):null} onSubmit={body=>form==="new"?create.mutate(body,{onSuccess:close}):update.mutate({id:form.id,body},{onSuccess:close})} />}</div>;
 }

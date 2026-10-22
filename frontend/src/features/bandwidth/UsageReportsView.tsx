@@ -1,9 +1,9 @@
-import { TabItem, Tabs } from "flowbite-react";
+import { Alert, TabItem, Tabs } from "flowbite-react";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/shared/api/client";
 import { API } from "@/shared/api/endpoints";
-import { usePaginatedList } from "@/shared/hooks/usePaginatedList";
+import { useAdminOptions as usePaginatedList } from "@/features/admin/useAdminOptions";
 import { apiError } from "@/shared/utils/apiError";
 import type { Customer, Router } from "@/shared/types/api";
 import { HistoricalLogsTable } from "./HistoricalLogsTable";
@@ -63,7 +63,9 @@ export function UsageReportsView() {
 
   return (
     <div className="space-y-6">
-      <ReportSummaryCards summary={summary.data} />
+      <p className="text-sm text-slate-500">Stored RouterOS usage snapshots. The backend sums cumulative snapshots; repeated samples can double-count bytes. These are not accurate consumption totals and are separate from RADIUS accounting.</p>
+      {summary.isError ? <Alert color="failure">Usage summary unavailable.</Alert> : summary.isLoading ? <p>Loading summary…</p> : <ReportSummaryCards summary={summary.data} />}
+      {(routers.isError || customers.isError) && <Alert color="failure">Some filter options are unavailable.</Alert>}
       <ReportFilters
         draft={draft}
         onChange={(patch) => setDraft((d) => ({ ...d, ...patch }))}
@@ -75,13 +77,13 @@ export function UsageReportsView() {
       />
       <Tabs variant="underline" aria-label="Usage reports">
         <TabItem active title="Historical Usage Logs">
-          <HistoricalLogsTable data={logs.data} onExport={exportCsv} />
+          {logs.isError ? <Alert color="failure">Usage logs unavailable.</Alert> : logs.isLoading ? <p>Loading logs…</p> : <HistoricalLogsTable data={logs.data} onExport={() => void exportCsv().catch(()=>window.alert("Export failed. Check your permissions and connection."))} />}
         </TabItem>
         <TabItem title="Top 50 Users">
-          <TopUsersTable rows={topUsers.data ?? []} />
+          {topUsers.isError ? <Alert color="failure">Top users unavailable.</Alert> : topUsers.isLoading ? <p>Loading users…</p> : <TopUsersTable rows={topUsers.data ?? []} />}
         </TabItem>
         <TabItem title="Router Summaries">
-          <RouterSummariesTable rows={routerSummaries.data ?? []} />
+          {routerSummaries.isError ? <Alert color="failure">Router summaries unavailable.</Alert> : routerSummaries.isLoading ? <p>Loading routers…</p> : <RouterSummariesTable rows={routerSummaries.data ?? []} />}
         </TabItem>
       </Tabs>
     </div>

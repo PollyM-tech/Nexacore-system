@@ -32,9 +32,9 @@ export function SmsTemplateForm({ open, onClose, initial, onSubmit, submitting, 
   return (
     <FormModal open={open} onClose={onClose} title={initial ? "Edit template" : "New template"}
       onSubmit={submit} submitting={submitting} error={error} submitLabel={initial ? "Save changes" : "Create"}>
-      <FormField label="Template name" required><TextInput required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Monthly bill reminder" /></FormField>
-      <FormField label="Category">
-        <Select value={category} onChange={(e) => setCategory(e.target.value)}>
+      <FormField label="Template name" htmlFor="smstemplateform-template-name" required><TextInput id="smstemplateform-template-name" required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Monthly bill reminder" /></FormField>
+      <FormField label="Category" htmlFor="smstemplateform-category">
+        <Select id="smstemplateform-category" value={category} onChange={(e) => setCategory(e.target.value)}>
           {CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </Select>
       </FormField>

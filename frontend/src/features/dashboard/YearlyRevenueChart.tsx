@@ -2,7 +2,7 @@ import {
   Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { ChartCard } from "@/shared/components/ui/ChartCard";
-import { compact, money } from "@/shared/utils/format";
+import { compactKes as compact, kes as money } from "@/shared/utils/format";
 
 type Row = { year: string; billed: number; collected: number };
 
@@ -13,7 +13,7 @@ export function YearlyRevenueChart({ data }: { data: Row[] }) {
   }));
 
   return (
-    <ChartCard title="Yearly review" subtitle="Billed, collected & collection rate by year">
+    <ChartCard title="Yearly invoice allocations" subtitle="Monthly invoices grouped by billing year, not payment receipt date">
       <div className="h-72">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={rows} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>

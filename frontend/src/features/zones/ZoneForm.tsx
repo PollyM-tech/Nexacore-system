@@ -22,14 +22,14 @@ export function ZoneForm({ open, onClose, initial, onSubmit, submitting, error }
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit({ name });
+    onSubmit({ name: name.trim() });
   };
 
   return (
     <FormModal open={open} onClose={onClose} title={initial ? "Edit zone" : "New zone"}
       onSubmit={submit} submitting={submitting} error={error} submitLabel={initial ? "Save changes" : "Create"}>
-      <FormField label="Zone name" required full>
-        <TextInput required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Mirpur-10" />
+      <FormField label="Zone name" htmlFor="zoneform-zone-name" required full>
+        <TextInput id="zoneform-zone-name" required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. North service area" />
       </FormField>
     </FormModal>
   );

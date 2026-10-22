@@ -1,3 +1,4 @@
+import { dateTime } from "@/shared/utils/format";
 import type { Column } from "@/shared/components/data/DataTable";
 import { StatusBadge } from "@/shared/components/ui/StatusBadge";
 import type { SmsLog } from "@/shared/types/api";
@@ -22,7 +23,7 @@ export const smsLogColumns: Column<SmsLog>[] = [
     key: "date", header: "Sent",
     render: (r) => (
       <div className="text-sm">
-        {r.created_at ? new Date(r.created_at).toLocaleString() : "—"}
+        {dateTime(r.created_at)}
         {r.sent_by_username ? <p className="text-xs text-slate-400">by {r.sent_by_username}</p> : null}
       </div>
     ),

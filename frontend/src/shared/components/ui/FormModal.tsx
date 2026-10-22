@@ -7,15 +7,16 @@ type Props = {
   title: string;
   onSubmit: (e: React.FormEvent) => void;
   submitting?: boolean;
+  submitDisabled?: boolean;
   error?: string | null;
   submitLabel?: string;
   cancelLabel?: string;
   children: ReactNode;
 };
 
-export function FormModal({ open, onClose, title, onSubmit, submitting, error, submitLabel = "Save", cancelLabel = "Cancel", children }: Props) {
+export function FormModal({ open, onClose, title, onSubmit, submitting, submitDisabled, error, submitLabel = "Save", cancelLabel = "Cancel", children }: Props) {
   return (
-    <Modal show={open} onClose={onClose} size="lg">
+    <Modal show={open} onClose={submitting ? () => undefined : onClose} size="lg">
       <ModalHeader>{title}</ModalHeader>
       <form onSubmit={onSubmit}>
         <ModalBody>
@@ -26,7 +27,7 @@ export function FormModal({ open, onClose, title, onSubmit, submitting, error, s
         </ModalBody>
         <div className="flex items-center justify-end gap-3 border-t border-slate-200 p-4 dark:border-slate-700">
           <Button color="light" type="button" onClick={onClose} disabled={submitting}>{cancelLabel}</Button>
-          <Button color="primary" type="submit" disabled={submitting}>
+          <Button color="primary" type="submit" disabled={submitting || submitDisabled}>
             {submitting ? "Saving…" : submitLabel}
           </Button>
         </div>

@@ -22,7 +22,8 @@ export function PortalLoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-brand-700 via-brand-600 to-ink-900 p-4">
       <div className="w-full max-w-sm rounded-3xl bg-white p-7 shadow-2xl dark:bg-ink-900">
         <Brand />
-        <h1 className="mt-6 text-2xl font-bold text-slate-900 dark:text-white">Customer Portal</h1>
+        <p className="mt-4 text-xs font-bold uppercase tracking-wide text-brand-700">Lintech ISP Management</p>
+        <h1 className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">Customer Portal</h1>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Sign in with your PPPoE credentials.</p>
         {login.isError ? (
           <Alert color="failure" className="mt-5">Invalid PPPoE username or password.</Alert>
@@ -40,6 +41,7 @@ export function PortalLoginPage() {
             {login.isPending ? "Signing in…" : "Sign in"}
           </Button>
         </form>
+        <a href={ROUTES.login} className="mt-5 block text-center text-sm font-semibold text-brand-700 hover:underline">Staff login</a>
         <a href={ROUTES.home} className="mt-5 block text-center text-sm text-slate-400 hover:text-brand-600">← Back to home</a>
       </div>
     </div>

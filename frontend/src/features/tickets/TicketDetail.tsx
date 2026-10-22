@@ -24,12 +24,13 @@ export function TicketDetail({ ticketId, onClose }: Props) {
   });
 
   useEffect(() => {
-    if (!open) setReply("");
-  }, [open]);
+    setReply("");
+  }, [open, ticketId]);
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["ticket", ticketId] });
     qc.invalidateQueries({ queryKey: ["tickets"] });
+    qc.invalidateQueries({ queryKey: ["dashboard-summary"] });
   };
 
   const patch = useMutation({
@@ -54,10 +55,10 @@ export function TicketDetail({ ticketId, onClose }: Props) {
         ) : (
           <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-3">
-              <Select value={t.status} onChange={(e) => patch.mutate({ status: e.target.value })} className="w-40">
+              <Select aria-label="Ticket status" disabled={patch.isPending} value={t.status} onChange={(e) => patch.mutate({ status: e.target.value })} className="w-40">
                 {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace("_", " ")}</option>)}
               </Select>
-              <Select value={t.priority} onChange={(e) => patch.mutate({ priority: e.target.value })} className="w-36">
+              <Select aria-label="Ticket priority" disabled={patch.isPending} value={t.priority} onChange={(e) => patch.mutate({ priority: e.target.value })} className="w-36">
                 {PRIORITY_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
               </Select>
               <span className="text-sm text-slate-400">{t.customer_name} · {t.customer_id}</span>
@@ -83,13 +84,14 @@ export function TicketDetail({ ticketId, onClose }: Props) {
               ) : null}
             </div>
 
+            {patch.isError && <Alert color="failure">{apiError(patch.error)}</Alert>}
             {sendReply.isError ? <Alert color="failure">{apiError(sendReply.error)}</Alert> : null}
             <form
               className="flex items-end gap-2"
               onSubmit={(e) => { e.preventDefault(); if (reply.trim()) sendReply.mutate(reply.trim()); }}
             >
               <div className="flex-1">
-                <Textarea rows={2} value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Write a reply as support staff…" />
+                <Textarea aria-label="Support reply" rows={2} value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Write a reply as support staff…" />
               </div>
               <Button type="submit" color="primary" disabled={sendReply.isPending || !reply.trim()}>
                 Reply

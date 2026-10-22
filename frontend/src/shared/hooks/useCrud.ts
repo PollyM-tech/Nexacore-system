@@ -5,7 +5,13 @@ type UpdateVars = { id: string | number; body: unknown };
 
 export function useCrud(queryKey: string, baseUrl: string) {
   const qc = useQueryClient();
-  const onSuccess = () => qc.invalidateQueries({ queryKey: [queryKey] });
+  const onSuccess = async () => {
+    await qc.invalidateQueries({ queryKey: [queryKey] });
+    if (queryKey === "customers") {
+      await qc.invalidateQueries({ queryKey: ["dashboard-summary"] });
+      await qc.invalidateQueries({ queryKey: ["customers-online"] });
+    }
+  };
 
   const create = useMutation({
     mutationFn: (body: unknown) => api.post(baseUrl, body).then((r) => r.data),

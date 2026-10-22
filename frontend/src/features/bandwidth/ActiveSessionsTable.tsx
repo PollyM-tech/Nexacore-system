@@ -29,7 +29,7 @@ const columns: Column<LiveSession>[] = [
   { key: "uptime", header: "Uptime", render: (r) => r.uptime || "—" },
   { key: "download", header: "Download", align: "right", render: (r) => <span className="text-sky-600 dark:text-sky-400">{bytes(r.download_bytes)}</span> },
   { key: "upload", header: "Upload", align: "right", render: (r) => <span className="text-violet-600 dark:text-violet-400">{bytes(r.upload_bytes)}</span> },
-  { key: "profile", header: "Package", render: (r) => r.profile || "—" },
+  { key: "profile", header: "Package / profile", render: (r) => r.profile || "—" },
   { key: "billing", header: "Billing", render: (r) => <StatusBadge status={r.billing_status} /> },
   { key: "router", header: "Router", render: (r) => r.router },
 ];
@@ -52,17 +52,17 @@ export function ActiveSessionsTable(props: Props) {
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <SearchField value={search} onChange={onSearch} placeholder="Search sessions…" />
-          <SelectField value={routerId} onChange={onRouterChange} options={routerOptions} placeholder="All Connected Routers" ariaLabel="Filter by router" />
+          <SelectField value={routerId} onChange={onRouterChange} options={routerOptions} placeholder="All enabled routers" ariaLabel="Filter by router" />
           <Button color="primary" onClick={onSync} disabled={syncing}>
             <Icon name="refresh" className={`mr-2 h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
-            Sync Now
+            Save snapshot
           </Button>
         </div>
       </div>
       {filtered.length > 0 ? (
         <DataTable columns={columns} rows={filtered} rowKey={(r) => `${r.router_id}-${r.pppoe_id}`} />
       ) : (
-        <EmptyState icon="activity" title="No active sessions" description="No PPPoE clients are currently connected on the selected router(s)." />
+        <EmptyState icon="activity" title="No sessions detected" description="No sessions were returned from available RouterOS APIs. Check API availability and RADIUS accounting separately." />
       )}
     </section>
   );

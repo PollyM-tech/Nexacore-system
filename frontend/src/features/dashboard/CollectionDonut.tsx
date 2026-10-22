@@ -1,6 +1,6 @@
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
 import { ChartCard } from "@/shared/components/ui/ChartCard";
-import { money } from "@/shared/utils/format";
+import { kes as money } from "@/shared/utils/format";
 
 type Props = { collected: number; due: number };
 
@@ -13,7 +13,7 @@ export function CollectionDonut({ collected, due }: Props) {
   ];
 
   return (
-    <ChartCard title="Collection rate" subtitle="All-time billed amount">
+    <ChartCard title="Invoice collection rate" subtitle="All-time monthly bills and connection fees">
       <div className="relative h-48">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>

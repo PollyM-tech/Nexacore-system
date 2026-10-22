@@ -2,10 +2,10 @@ import { Select } from "flowbite-react";
 import { useState } from "react";
 import { paymentColumns } from "@/features/payments/paymentColumns";
 import { API } from "@/shared/api/endpoints";
-import { ResourceList } from "@/shared/components/data/ResourceList";
+import { AdminResourceList as ResourceList } from "@/features/admin/AdminResourceList";
 import type { Transaction } from "@/shared/types/api";
 
-const METHODS = ["cash", "bkash", "nagad", "rocket", "bank_transfer", "card", "adjustment", "other"];
+const METHODS = ["cash", "mpesa", "bank_transfer", "card", "adjustment", "other"];
 
 export function PaymentsHistory() {
   const [method, setMethod] = useState("");
@@ -16,9 +16,9 @@ export function PaymentsHistory() {
       emptyDescription="Recorded payments and adjustments will appear here." emptyIcon="cash"
       params={{ payment_method: method }}
       filters={
-        <Select sizing="sm" value={method} onChange={(e) => setMethod(e.target.value)} className="w-40">
+        <Select aria-label="Payment method filter" sizing="sm" value={method} onChange={(e) => setMethod(e.target.value)} className="w-40">
           <option value="">All methods</option>
-          {METHODS.map((m) => <option key={m} value={m} className="capitalize">{m.replace(/_/g, " ")}</option>)}
+          {METHODS.map((m) => <option key={m} value={m} className="capitalize">{m === "mpesa" ? "M-Pesa" : m.replace(/_/g, " ")}</option>)}
         </Select>
       }
     />

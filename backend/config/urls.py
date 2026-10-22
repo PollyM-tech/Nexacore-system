@@ -11,6 +11,7 @@ from drf_spectacular.views import (
 
 
 urlpatterns = [
+    path("api/platform/", include("platform_api.urls")),
     # Public provider callbacks
     path("", include("payments.urls")),
 

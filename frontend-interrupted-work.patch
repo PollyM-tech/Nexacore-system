@@ -1,0 +1,389 @@
+diff --git a/frontend/src/features/customers/ConnectionFields.tsx b/frontend/src/features/customers/ConnectionFields.tsx
+index 1246739..3e3eb79 100644
+--- a/frontend/src/features/customers/ConnectionFields.tsx
++++ b/frontend/src/features/customers/ConnectionFields.tsx
+@@ -8,12 +8,17 @@ export function ConnectionFields({ f, set, options, profiles, profilesLoading, p
+   const hasProfiles = profiles.length > 0;
+   return (
+     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
++      <FormField label="Authentication mode">
++        <Select value={f.authentication_mode} onChange={set("authentication_mode")}><option value="local_secret">MikroTik local secret</option><option value="radius">RADIUS managed</option></Select>
++      </FormField>
++      {f.authentication_mode === "radius" ? <p className="text-sm text-slate-500">Select a router and package. Lintech generates the RADIUS credentials.</p> : null}
+       <FormField label="Router">
+         <Select value={f.router} onChange={set("router")}>
+           <option value="">No router</option>
+           {options.routers.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+         </Select>
+       </FormField>
++      {f.authentication_mode === "local_secret" ? <>
+       <FormField label="MikroTik profile">
+         {hasProfiles ? (
+           <Select value={f.profile_name} onChange={set("profile_name")}>
+@@ -30,12 +35,13 @@ export function ConnectionFields({ f, set, options, profiles, profilesLoading, p
+           </p>
+         ) : null}
+       </FormField>
+-      <FormField label="PPPoE name" required>
+-        <TextInput required value={f.pppoe_name} onChange={set("pppoe_name")} />
++      <FormField label="PPPoE name" required={!!f.router}>
++        <TextInput required={!!f.router} value={f.pppoe_name} onChange={set("pppoe_name")} />
+       </FormField>
+       <FormField label="PPPoE password" required>
+-        <TextInput required value={f.pppoe_pass} onChange={set("pppoe_pass")} />
++        <TextInput type="password" required={!!f.router} value={f.pppoe_pass} onChange={set("pppoe_pass")} />
+       </FormField>
++      </> : null}
+       <FormField label="Remote IP">
+         <TextInput value={f.remote_ip} onChange={set("remote_ip")} placeholder="Optional static IP" />
+       </FormField>
+diff --git a/frontend/src/features/customers/CustomersManager.tsx b/frontend/src/features/customers/CustomersManager.tsx
+index 32edb36..d7c61d6 100644
+--- a/frontend/src/features/customers/CustomersManager.tsx
++++ b/frontend/src/features/customers/CustomersManager.tsx
+@@ -88,13 +88,14 @@ export function CustomersManager() {
+     },
+   ];
+ 
+-  const listParams = { ...(FILTER_PARAMS[filter] ?? {}), ...(zoneParam ? { zone: zoneParam } : {}) };
++  const listParams = { ...(FILTER_PARAMS[filter] ?? {}), ...(zoneParam ? { zone: zoneParam } : {}), ...(searchParams.get("search") ? { search: searchParams.get("search")! } : {}) };
+   const filterRows = filter === "online"
+-    ? (c: Customer) => !online.ready || online.isOnline(c.pppoe_name)
++    ? (c: Customer) => online.ready && online.isOnline(c.pppoe_name)
+     : undefined;
+ 
+   return (
+     <>
++      {online.isError ? <p role="alert" className="mb-4 text-sm text-amber-600">Live status is unavailable. Online customers cannot currently be verified.</p> : null}
+       <ResourceList<Customer>
+         queryKey="customers" url={API.customers} columns={columns} rowKey={(r) => r.id}
+         params={listParams}
+diff --git a/frontend/src/features/customers/customerColumns.tsx b/frontend/src/features/customers/customerColumns.tsx
+index 8e0ce93..ec66e52 100644
+--- a/frontend/src/features/customers/customerColumns.tsx
++++ b/frontend/src/features/customers/customerColumns.tsx
+@@ -1,6 +1,7 @@
+ import type { Column } from "@/shared/components/data/DataTable";
+ import { NameCell } from "@/shared/components/ui/NameCell";
+ import { StatusBadge } from "@/shared/components/ui/StatusBadge";
++import { money } from "@/shared/utils/format";
+ import type { Customer } from "@/shared/types/api";
+ 
+ export const customerColumns: Column<Customer>[] = [
+@@ -11,6 +12,7 @@ export const customerColumns: Column<Customer>[] = [
+       <NameCell name={r.customer_name} subtitle={r.address ? `${r.customer_id} · ${r.address}` : r.customer_id} />
+     ),
+   },
++  { key: "authentication", header: "Authentication", render: (r) => r.authentication_mode === "radius" ? "RADIUS" : "Local secret" },
+   { key: "phone", header: "Phone", render: (r) => r.phone_number || "—" },
+   {
+     key: "address",
+@@ -56,7 +58,7 @@ export const customerColumns: Column<Customer>[] = [
+     align: "right",
+     render: (r) => (
+       <span className={Number(r.balance) < 0 ? "font-semibold text-rose-600" : "font-medium"}>
+-        ৳{r.balance}
++        {money(r.balance)}
+       </span>
+     ),
+   },
+diff --git a/frontend/src/features/customers/detail/LiveStatusCard.tsx b/frontend/src/features/customers/detail/LiveStatusCard.tsx
+index cd2dcb8..3615649 100644
+--- a/frontend/src/features/customers/detail/LiveStatusCard.tsx
++++ b/frontend/src/features/customers/detail/LiveStatusCard.tsx
+@@ -16,15 +16,18 @@ export function LiveStatusCard({ customerId }: { customerId: string }) {
+     retry: false,
+   });
+   const d = q.data;
++  const accounting = d?.accounting;
+   return (
+-    <DetailCard title="MikroTik live status">
++    <DetailCard title="Live connection status">
+       <div className="mb-3 flex items-center justify-between">
+-        <StatusBadge status={d?.status === "online" ? "active" : "inactive"} />
+-        <Button size="xs" color="light" onClick={() => q.refetch()} disabled={q.isFetching}>
++        <StatusBadge status={q.isError ? "unknown" : d?.status ?? "checking"} />
++        <Button aria-label="Refresh live status" size="xs" color="light" onClick={() => q.refetch()} disabled={q.isFetching}>
+           <Icon name="refresh" className={`h-4 w-4 ${q.isFetching ? "animate-spin" : ""}`} />
+         </Button>
+       </div>
+-      {q.isLoading ? <p className="py-4 text-sm text-slate-400">Checking router…</p> : null}
++      {q.isLoading ? <p className="py-4 text-sm text-slate-400">Checking session…</p> : null}
++      {q.isError ? <p role="alert" className="py-3 text-sm text-amber-600">Unable to verify this connection. Try refreshing.</p> : null}
++      {d?.authentication_mode ? <InfoRow label="Authentication">{d.authentication_mode === "radius" ? "RADIUS" : "Local secret"}</InfoRow> : null}
+       {d?.live_stats_available ? (
+         <>
+           <InfoRow label="Uptime">{d.uptime}</InfoRow>
+@@ -37,6 +40,17 @@ export function LiveStatusCard({ customerId }: { customerId: string }) {
+           </InfoRow>
+           <InfoRow label="Caller ID">{d.caller_id}</InfoRow>
+         </>
++      ) : accounting ? (
++        <>
++          <InfoRow label="Session status">{d?.status}</InfoRow>
++          <InfoRow label="IP address">{accounting.ip_address || "—"}</InfoRow>
++          <InfoRow label="MAC">{accounting.mac_address || "—"}</InfoRow>
++          <InfoRow label="Duration">{Math.floor(accounting.duration_seconds / 60)} min</InfoRow>
++          <InfoRow label="Download">{bytes(accounting.download_bytes)}</InfoRow>
++          <InfoRow label="Upload">{bytes(accounting.upload_bytes)}</InfoRow>
++          <InfoRow label="Last accounting update">{accounting.updated_at ? new Date(accounting.updated_at).toLocaleString("en-KE") : "—"}</InfoRow>
++          <p className="mt-3 text-xs text-slate-400">Latest RADIUS accounting counters; interim updates arrive every 5 minutes.</p>
++        </>
+       ) : d && !q.isLoading ? (
+         <div className="py-2 text-sm text-slate-500 dark:text-slate-400">
+           <p>{d.message ?? "Session is offline."}</p>
+diff --git a/frontend/src/features/customers/detail/ProfileCards.tsx b/frontend/src/features/customers/detail/ProfileCards.tsx
+index 13b1019..9ffef31 100644
+--- a/frontend/src/features/customers/detail/ProfileCards.tsx
++++ b/frontend/src/features/customers/detail/ProfileCards.tsx
+@@ -27,6 +27,7 @@ export function ProfileCards({ customer }: { customer: CustomerDetail }) {
+         ) : undefined}>
+         {r ? (
+           <>
++            <InfoRow label="Authentication">{r.authentication_mode === "radius" ? "RADIUS managed" : "MikroTik local secret"}</InfoRow>
+             <InfoRow label="Router">{r.router_name || "—"}</InfoRow>
+             <InfoRow label="MikroTik profile">{r.profile_name ? <span className="font-mono">{r.profile_name}</span> : "—"}</InfoRow>
+             <InfoRow label="PPPoE name"><span className="font-mono">{r.pppoe_name}</span></InfoRow>
+diff --git a/frontend/src/features/customers/useCustomerForm.ts b/frontend/src/features/customers/useCustomerForm.ts
+index 52995a8..e10e84f 100644
+--- a/frontend/src/features/customers/useCustomerForm.ts
++++ b/frontend/src/features/customers/useCustomerForm.ts
+@@ -12,7 +12,7 @@ import type { CustomerDetail } from "@/shared/types/api";
+ const EMPTY = {
+   customer_id: "", customer_name: "", phone_number: "", phone_number2: "", nid: "",
+   address: "", zone: "", package: "", billing_day: "1",
+-  router: "", profile_name: "", pppoe_name: "", pppoe_pass: "", remote_ip: "", service_type: "PPPoE",
++  authentication_mode: "local_secret", router: "", profile_name: "", pppoe_name: "", pppoe_pass: "", remote_ip: "", service_type: "PPPoE",
+ };
+ type FormState = typeof EMPTY;
+ 
+@@ -49,7 +49,7 @@ export function useCustomerForm() {
+       const { data } = await api.get<{ profiles?: string[] }>(API.routerProfiles(f.router));
+       return data.profiles ?? [];
+     },
+-    enabled: !isEdit && !!f.router,
++    enabled: !isEdit && !!f.router && f.authentication_mode === "local_secret",
+     retry: false,
+   });
+ 
+@@ -73,6 +73,7 @@ export function useCustomerForm() {
+       customer_name: f.customer_name, phone_number: f.phone_number,
+       phone_number2: f.phone_number2 || null, nid: f.nid || null, address: f.address,
+       zone_id: Number(f.zone), package_id: f.package ? Number(f.package) : null,
++      authentication_mode: f.authentication_mode,
+       billing_day: Number(f.billing_day), router_id: f.router ? Number(f.router) : null,
+       profile_name: f.profile_name || undefined, pppoe_name: f.pppoe_name, pppoe_pass: f.pppoe_pass,
+       remote_ip: f.remote_ip || null, service_type: f.service_type || "PPPoE",
+diff --git a/frontend/src/features/customers/useOnlineStatus.ts b/frontend/src/features/customers/useOnlineStatus.ts
+index 2361cd2..7534b17 100644
+--- a/frontend/src/features/customers/useOnlineStatus.ts
++++ b/frontend/src/features/customers/useOnlineStatus.ts
+@@ -17,12 +17,12 @@ export function useOnlineStatus() {
+   });
+ 
+   const onlineSet = useMemo(
+-    () => new Set((query.data ?? []).map((n) => n.toLowerCase())),
++    () => new Set((query.data ?? []).map((n) => n.trim())),
+     [query.data],
+   );
+ 
+   const isOnline = (pppoeName?: string | null) =>
+-    !!pppoeName && onlineSet.has(pppoeName.toLowerCase());
++    !!pppoeName && onlineSet.has(pppoeName.trim());
+ 
+-  return { isOnline, isLoading: query.isLoading, ready: query.isSuccess };
++  return { count: onlineSet.size, isError: query.isError, refetch: query.refetch, isOnline, isLoading: query.isLoading, ready: query.isSuccess };
+ }
+diff --git a/frontend/src/pages/DashboardPage.tsx b/frontend/src/pages/DashboardPage.tsx
+index 93c8363..46c53d8 100644
+--- a/frontend/src/pages/DashboardPage.tsx
++++ b/frontend/src/pages/DashboardPage.tsx
+@@ -1,22 +1,60 @@
++import { Link } from "react-router-dom";
+ import { AddCustomerButton } from "@/features/customers/AddCustomerButton";
+-import { ClientStatsGrid } from "@/features/dashboard/ClientStatsGrid";
++import { useOnlineStatus } from "@/features/customers/useOnlineStatus";
+ import { DashboardCharts } from "@/features/dashboard/DashboardCharts";
+-import { MiniMetrics } from "@/features/dashboard/MiniMetrics";
+-import { RecentCustomers } from "@/features/dashboard/RecentCustomers";
++import { useDashboardSummary } from "@/features/dashboard/useDashboardSummary";
+ import { PageHeader } from "@/shared/components/layout/PageHeader";
++import { StatusBadge } from "@/shared/components/ui/StatusBadge";
++import { ErrorAlert } from "@/shared/components/feedback/ErrorAlert";
++import { usePaginatedList } from "@/shared/hooks/usePaginatedList";
++import { API } from "@/shared/api/endpoints";
++import { ROUTES } from "@/shared/constants/routes";
++import { money } from "@/shared/utils/format";
++import type { Router, Transaction } from "@/shared/types/api";
+ 
+ export function DashboardPage() {
++  const summary = useDashboardSummary();
++  const online = useOnlineStatus();
++  const routers = usePaginatedList<Router>("routers", API.routers);
++  const payments = usePaginatedList<Transaction>("dashboard-payments", API.billing.transactions, { ordering: "-created_at" });
++  const d = summary.data;
++  const metrics = [
++    { label: "Total customers", value: d?.customers.total, to: ROUTES.customers, detail: "All registered customers" },
++    { label: "Active customers", value: d?.customers.active, to: `${ROUTES.customers}?filter=active`, detail: "Active subscription status" },
++    { label: "Online PPPoE users", value: online.ready ? online.count : undefined, to: `${ROUTES.customers}?filter=online`, detail: "Session detection · refreshes every 30s" },
++    { label: "Today's income", value: d ? money(d.revenue.today) : undefined, to: ROUTES.payments, detail: "Recorded payment transactions" },
++  ];
+   return (
+     <div className="space-y-6">
+-      <PageHeader
+-        title="Welcome back 👋"
+-        description="Here's what's happening across your network today."
+-        actions={<AddCustomerButton />}
+-      />
+-      <ClientStatsGrid />
+-      <MiniMetrics />
++      <PageHeader title="Network overview" description="Your customers, collections and network operations in one place." actions={<AddCustomerButton />} />
++      {summary.isError ? <ErrorAlert message="Dashboard totals are unavailable. Refresh to try again." /> : null}
++      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
++        {metrics.map((m) => <Link key={m.label} to={m.to} className="card-surface border-t-2 border-t-brand-500 p-5 transition hover:border-brand-400">
++          <p className="text-sm font-medium text-slate-500">{m.label}</p>
++          <p className="mt-3 text-3xl font-semibold tracking-tight text-slate-900 dark:text-white">{m.value ?? "—"}</p>
++          <p className="mt-3 text-xs text-slate-400">{m.detail}</p>
++        </Link>)}
++      </div>
++      {online.isError ? <ErrorAlert message="Live status is unavailable. Online counts could not be verified." /> : null}
++      <div className="flex flex-wrap items-center gap-x-8 gap-y-3 rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm dark:border-slate-800 dark:bg-ink-900">
++        <Link to={`${ROUTES.customers}?filter=due`}>Customers with dues <strong className="ml-2 text-amber-600">{d?.customers.due ?? "—"}</strong></Link>
++        <Link to={ROUTES.payments}>Outstanding <strong className="ml-2">{d ? money(d.revenue.outstanding) : "—"}</strong></Link>
++        <Link to={ROUTES.packages}>Active packages <strong className="ml-2">{d?.packages.active ?? "—"}</strong></Link>
++        <Link to={ROUTES.bandwidthLive} className="font-semibold text-brand-600 sm:ml-auto">Open live sessions →</Link>
++      </div>
++      <div className="grid gap-5 xl:grid-cols-3">
++        <section className="card-surface p-5 xl:col-span-2">
++          <div className="mb-4 flex justify-between gap-3"><h2 className="font-semibold">Recent payments</h2><Link className="text-sm text-brand-600" to={ROUTES.payments}>View payments →</Link></div>
++          {payments.isLoading ? <p className="py-8 text-sm text-slate-500">Loading payments…</p> : payments.isError ? <ErrorAlert message="Recent payments could not be loaded." /> : !payments.data?.length ? <p className="py-8 text-sm text-slate-500">No payments recorded yet.</p> :
++            <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="border-b border-slate-200 text-xs uppercase text-slate-400"><tr><th className="py-3">Customer / receipt</th><th>Method</th><th className="text-right">Amount</th></tr></thead><tbody>{payments.data.slice(0, 5).map((t) => <tr key={t.id} className="border-b border-slate-100 last:border-0 dark:border-slate-800"><td className="py-4"><p className="font-medium">{t.customer_name || "Customer"}</p><p className="mt-1 text-xs text-slate-400">{t.transaction_id || "No reference"} · {t.created_at ? new Date(t.created_at).toLocaleDateString("en-KE") : "—"}</p></td><td className="capitalize">{t.payment_method}</td><td className="text-right font-semibold">{money(t.amount)}</td></tr>)}</tbody></table></div>}
++        </section>
++        <section className="card-surface p-5">
++          <div className="mb-4 flex justify-between gap-3"><h2 className="font-semibold">Router status</h2><Link className="text-sm text-brand-600" to={ROUTES.routers}>Manage →</Link></div>
++          <p className="mb-3 text-xs text-slate-400">Last reported connection status</p>
++          {routers.isLoading ? <p className="py-8 text-sm text-slate-500">Loading routers…</p> : routers.isError ? <ErrorAlert message="Router status could not be loaded." /> : !routers.data?.length ? <p className="py-8 text-sm text-slate-500">Add a router to start monitoring your network.</p> : <ul className="divide-y divide-slate-100 dark:divide-slate-800">{routers.data.slice(0, 5).map((r) => <li key={r.id} className="flex items-center justify-between gap-2 py-3"><div><p className="text-sm font-medium">{r.name}</p><p className="text-xs text-slate-400">{r.host}</p></div><StatusBadge status={r.is_active ? r.status || "unknown" : "inactive"} /></li>)}</ul>}
++        </section>
++      </div>
+       <DashboardCharts />
+-      <RecentCustomers />
+     </div>
+   );
+ }
+diff --git a/frontend/src/shared/components/layout/Brand.tsx b/frontend/src/shared/components/layout/Brand.tsx
+index 95c645f..c109a68 100644
+--- a/frontend/src/shared/components/layout/Brand.tsx
++++ b/frontend/src/shared/components/layout/Brand.tsx
+@@ -11,7 +11,7 @@ export function Brand({ compact, onDark }: Props) {
+       {!compact ? (
+         <div className="leading-tight">
+           <p className={`text-base font-bold tracking-tight ${onDark ? "text-white" : "text-slate-900 dark:text-white"}`}>
+-            NetPulse
++            Lintech
+           </p>
+           <p className="text-[11px] font-medium text-slate-400">ISP Control Center</p>
+         </div>
+diff --git a/frontend/src/shared/components/layout/TopBar.tsx b/frontend/src/shared/components/layout/TopBar.tsx
+index 082d063..36378d0 100644
+--- a/frontend/src/shared/components/layout/TopBar.tsx
++++ b/frontend/src/shared/components/layout/TopBar.tsx
+@@ -1,3 +1,6 @@
++import { useNavigate } from "react-router-dom";
++import { useState } from "react";
++import { ROUTES } from "@/shared/constants/routes";
+ import { DarkThemeToggle } from "flowbite-react";
+ import { Icon } from "@/shared/components/icons/Icon";
+ import { UserMenu } from "@/shared/components/layout/UserMenu";
+@@ -5,25 +8,28 @@ import { UserMenu } from "@/shared/components/layout/UserMenu";
+ type Props = { onMenuClick: () => void };
+ 
+ export function TopBar({ onMenuClick }: Props) {
++  const navigate = useNavigate();
++  const [search, setSearch] = useState("");
+   return (
+     <header className="sticky top-0 z-20 flex h-16 items-center justify-between gap-4 border-b border-slate-200/70 bg-white/80 px-4 backdrop-blur-xl md:px-6 dark:border-slate-800 dark:bg-ink-900/80">
+       <div className="flex items-center gap-3">
+         <button
+           type="button"
+           onClick={onMenuClick}
+-          className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 md:hidden dark:hover:bg-slate-800"
++          className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 lg:hidden dark:hover:bg-slate-800"
+           aria-label="Open menu"
+         >
+           <Icon name="menu" />
+         </button>
+-        <div className="relative hidden sm:block">
++        <form className="relative hidden sm:block" onSubmit={(e) => { e.preventDefault(); navigate(`${ROUTES.customers}?search=${encodeURIComponent(search.trim())}`); }}>
+           <Icon name="search" className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+           <input
+             type="search"
+-            placeholder="Search anything…"
++            placeholder="Search customers…"
++            aria-label="Search customers" value={search} onChange={(e) => setSearch(e.target.value)}
+             className="w-56 rounded-xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm outline-none transition focus:w-72 focus:border-brand-400 focus:bg-white lg:w-72 dark:border-slate-700 dark:bg-ink-800"
+           />
+-        </div>
++        </form>
+       </div>
+       <div className="flex items-center gap-1.5">
+         <DarkThemeToggle className="rounded-lg" />
+diff --git a/frontend/src/shared/constants/nav.ts b/frontend/src/shared/constants/nav.ts
+index 45f3768..924cf29 100644
+--- a/frontend/src/shared/constants/nav.ts
++++ b/frontend/src/shared/constants/nav.ts
+@@ -37,7 +37,7 @@ export const MAIN_NAV: NavItem[] = [
+   { label: "Routers", to: ROUTES.routers, icon: "router", group: "Network" },
+   { label: "OLT / ONU", to: ROUTES.olt, icon: "signal", group: "Network" },
+   { label: "Scheduler", to: ROUTES.scheduler, icon: "clock", group: "Network" },
+-  { label: "Live Usage", to: ROUTES.bandwidthLive, icon: "activity", group: "Bandwidth" },
++  { label: "Live sessions", to: ROUTES.bandwidthLive, icon: "activity", group: "Bandwidth" },
+   { label: "Usage Reports", to: ROUTES.bandwidthReports, icon: "fileText", group: "Bandwidth" },
+ ];
+ 
+diff --git a/frontend/src/shared/types/api.ts b/frontend/src/shared/types/api.ts
+index c27a55c..80e16e4 100644
+--- a/frontend/src/shared/types/api.ts
++++ b/frontend/src/shared/types/api.ts
+@@ -20,11 +20,13 @@ export type Customer = {
+   balance: string;
+   billing_date?: string | null;
+   extended_billing_days?: number;
++  authentication_mode?: "local_secret" | "radius";
+   pppoe_name?: string | null;
+   created_at?: string;
+ };
+ 
+ export type RouterInfo = {
++  authentication_mode?: "local_secret" | "radius";
+   pppoe_name: string;
+   pppoe_pass: string;
+   profile_name?: string;
+@@ -63,6 +65,9 @@ export type CustomerDetail = {
+ };
+ 
+ export type LiveStats = {
++  authentication_mode?: "local_secret" | "radius";
++  username?: string;
++  accounting?: { ip_address?: string; mac_address?: string; duration_seconds: number; download_bytes: number; upload_bytes: number; updated_at?: string; stopped_at?: string } | null;
+   status: "online" | "offline" | "error";
+   live_stats_available: boolean;
+   uptime?: string;
+diff --git a/frontend/src/shared/utils/format.ts b/frontend/src/shared/utils/format.ts
+index c1804cf..dc4341f 100644
+--- a/frontend/src/shared/utils/format.ts
++++ b/frontend/src/shared/utils/format.ts
+@@ -1,11 +1,11 @@
+ export function money(value: number | string): string {
+-  return `৳${Math.round(Number(value) || 0).toLocaleString("en-IN")}`;
++  return `KES ${Number(value || 0).toLocaleString("en-KE", { maximumFractionDigits: 2 })}`;
+ }
+ 
+ export function compact(value: number | string): string {
+   const n = Number(value) || 0;
+-  if (n >= 1000) return `৳${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
+-  return `৳${n}`;
++  if (n >= 1000) return `KES ${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
++  return `KES ${n}`;
+ }
+ 
+ export function bytes(value?: number | string): string {

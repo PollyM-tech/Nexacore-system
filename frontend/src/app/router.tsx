@@ -1,3 +1,9 @@
+import { PlatformProtectedRoute } from "@/features/platform/PlatformProtectedRoute";
+import { PlatformShell, PlatformSettings } from "@/features/platform/PlatformShell";
+import { PlatformDashboard } from "@/features/platform/PlatformDashboard";
+import { OrganizationsManager, OrganizationDetail } from "@/features/platform/Organizations";
+import { PlatformUsers } from "@/features/platform/PlatformUsers";
+import { PlatformAudit } from "@/features/platform/PlatformAudit";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { ProtectedRoute } from "@/app/ProtectedRoute";
 import { PortalProtectedRoute } from "@/app/PortalProtectedRoute";
@@ -32,6 +38,17 @@ export function AppRouter() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
 
+        <Route path="/superadmin" element={<PlatformProtectedRoute />}>
+          <Route element={<PlatformShell />}>
+            <Route index element={<PlatformDashboard />} />
+            <Route path="organizations" element={<OrganizationsManager />} />
+            <Route path="organizations/:id" element={<OrganizationDetail />} />
+            <Route path="users" element={<PlatformUsers />} />
+            <Route path="audit" element={<PlatformAudit />} />
+            <Route path="settings" element={<PlatformSettings />} />
+            <Route path="*" element={<Navigate to="/superadmin" replace />} />
+          </Route>
+        </Route>
         <Route path="/admin/login" element={<LoginPage />} />
         <Route path="/admin" element={<ProtectedRoute />}>
           <Route element={<AppShell />}>

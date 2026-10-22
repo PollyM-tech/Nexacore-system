@@ -37,9 +37,9 @@ export function ReportSummaryCards({ summary }: { summary?: ConsumptionSummary }
   const empty = { upload_bytes: 0, download_bytes: 0, total_bytes: 0 };
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-      <SummaryCard label="Today's Consumption" win={summary?.today ?? empty} />
-      <SummaryCard label="Last 7 Days" win={summary?.last_7_days ?? empty} />
-      <SummaryCard label="Last 30 Days" win={summary?.last_30_days ?? empty} />
+      <SummaryCard label="Today’s snapshot sums" win={summary?.today ?? empty} />
+      <SummaryCard label="7-day snapshot sums" win={summary?.last_7_days ?? empty} />
+      <SummaryCard label="30-day snapshot sums" win={summary?.last_30_days ?? empty} />
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { Select } from "flowbite-react";
 import { useState } from "react";
 import { billColumns } from "@/features/billing/billingColumns";
 import { API } from "@/shared/api/endpoints";
-import { ResourceList } from "@/shared/components/data/ResourceList";
+import { AdminResourceList as ResourceList } from "@/features/admin/AdminResourceList";
 import type { MonthlyBill } from "@/shared/types/api";
 
 const STATUSES = ["unpaid", "partial", "paid", "free"];
@@ -15,7 +15,7 @@ export function MonthlyBillsList() {
   const [month, setMonth] = useState("");
   const [year, setYear] = useState("");
   return (
-    <ResourceList<MonthlyBill>
+    <div className="space-y-3"><p className="text-sm text-slate-500">Allocated / paid amounts are invoice allocations, not received-payment totals.</p><ResourceList<MonthlyBill>
       queryKey="monthly-bills" url={API.billing.monthlyBills} columns={billColumns} rowKey={(r) => r.id}
       searchPlaceholder="Search bills…" emptyTitle="No monthly bills"
       emptyDescription="Generate monthly bills to see them here." emptyIcon="billing"
@@ -36,6 +36,6 @@ export function MonthlyBillsList() {
           </Select>
         </>
       }
-    />
+    /></div>
   );
 }

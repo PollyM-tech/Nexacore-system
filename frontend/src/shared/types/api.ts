@@ -20,13 +20,14 @@ export type Customer = {
   balance: string;
   billing_date?: string | null;
   extended_billing_days?: number;
+  authentication_mode?: "radius" | "local_secret" | null;
   pppoe_name?: string | null;
   created_at?: string;
 };
 
 export type RouterInfo = {
   pppoe_name: string;
-  pppoe_pass: string;
+  authentication_mode?: "radius" | "local_secret" | null;
   profile_name?: string;
   remote_ip?: string | null;
   router: number | null;
@@ -63,6 +64,10 @@ export type CustomerDetail = {
 };
 
 export type LiveStats = {
+  authentication_mode?: "radius" | "local_secret";
+  username?: string;
+  radius_online?: boolean;
+  accounting?: RadiusSession | null;
   status: "online" | "offline" | "error";
   live_stats_available: boolean;
   uptime?: string;
@@ -98,6 +103,8 @@ export type Package = {
   price: string;
   description?: string;
   is_active: boolean;
+  customer_count?: number;
+  radius_customer_count?: number;
 };
 
 export type Router = {
@@ -137,6 +144,7 @@ export type Ticket = {
 
 export type MonthlyBill = {
   id: number;
+  customer?: number;
   customer_name?: string;
   package_name?: string;
   total_amount: string;
@@ -149,6 +157,7 @@ export type MonthlyBill = {
 
 export type Transaction = {
   id: number;
+  customer?: number;
   customer_name?: string;
   amount: string;
   payment_method: string;
@@ -244,4 +253,38 @@ export type SmsLog = {
   response: string;
   sent_by_username?: string;
   created_at?: string;
+};
+
+
+export type RadiusSession = {
+  id: number;
+  username: string;
+  customer_id: string | null;
+  customer_name: string | null;
+  router_id: number | null;
+  router_name: string | null;
+  nas_ip_address: string | null;
+  ip_address: string | null;
+  mac_address: string | null;
+  started_at: string | null;
+  updated_at: string | null;
+  stopped_at: string | null;
+  duration_seconds: number;
+  download_bytes: number;
+  upload_bytes: number;
+  total_bytes: number;
+  online: boolean;
+  terminate_cause: string | null;
+  service_type: string | null;
+};
+
+// count is the number of returned rows after limit, not the organization total.
+export type RadiusSessionPreview = { count: number; results: RadiusSession[] };
+
+export type RadiusCustomerSummary = {
+  customer_id: string;
+  customer_name: string;
+  online: boolean;
+  totals: { session_count: number; total_session_seconds: number; total_input_bytes: number; total_output_bytes: number };
+  latest_session: RadiusSession | null;
 };

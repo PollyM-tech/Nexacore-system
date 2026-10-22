@@ -5,7 +5,7 @@ import { ROUTES } from "@/shared/constants/routes";
 import type { NavItem } from "@/shared/constants/nav";
 
 const LINK = "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all";
-const ACTIVE = "bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-200";
+const ACTIVE = "bg-brand-50 font-semibold text-brand-700 ring-1 ring-inset ring-brand-200/70 dark:bg-brand-900/25 dark:text-brand-200 dark:ring-brand-800/70";
 const IDLE = "text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white";
 
 type Props = { item: NavItem; onNavigate?: () => void };

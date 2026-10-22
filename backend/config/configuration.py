@@ -18,6 +18,7 @@ SPECTACULAR_SETTINGS = {
 }
 
 AUTH_KIT = {
+    'USER_SERIALIZER': 'customers.serializers.users.StaffIdentitySerializer',
     'AUTH_TYPE': 'jwt',
     'USE_AUTH_COOKIE': True,
     'SESSION_LOGIN': False,

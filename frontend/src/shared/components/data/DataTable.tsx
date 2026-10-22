@@ -19,10 +19,11 @@ export function DataTable<T>({ columns, rows, rowKey, onRowClick }: Props<T>) {
     <div className="card-surface overflow-hidden p-0">
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
-          <thead className="border-b border-slate-100 bg-slate-50/70 text-[11px] uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-ink-800/60 dark:text-slate-400">
+          <thead className="border-b border-slate-100 bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-ink-950/50 dark:text-slate-400">
             <tr>
               {columns.map((col) => (
                 <th
+                  scope="col"
                   key={col.key}
                   className={`px-5 py-3.5 font-semibold ${col.align === "right" ? "text-right" : ""}`}
                 >
@@ -36,7 +37,7 @@ export function DataTable<T>({ columns, rows, rowKey, onRowClick }: Props<T>) {
               <tr
                 key={rowKey(row)}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
-                className={`border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50/70 dark:border-slate-800 dark:hover:bg-ink-800/40 ${onRowClick ? "cursor-pointer" : ""}`}
+                className={`border-b border-slate-100 transition-colors last:border-0 hover:bg-brand-50/50 dark:border-slate-800 dark:hover:bg-ink-800/70 ${onRowClick ? "cursor-pointer" : ""}`}
               >
                 {columns.map((col) => (
                   <td

@@ -22,15 +22,15 @@ export function MessageEditor({ message, onMessage, templates, showVars = true }
   return (
     <>
       {templates.length ? (
-        <FormField label="Use a template">
-          <Select defaultValue="" onChange={(e) => { const t = templates.find((x) => String(x.id) === e.target.value); if (t) onMessage(t.body); }}>
+        <FormField label="Use a template" htmlFor="messageeditor-use-a-template">
+          <Select id="messageeditor-use-a-template" defaultValue="" onChange={(e) => { const t = templates.find((x) => String(x.id) === e.target.value); if (t) onMessage(t.body); }}>
             <option value="">Start from scratch…</option>
             {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </Select>
         </FormField>
       ) : null}
-      <FormField label="Message" required full>
-        <Textarea rows={5} required value={message} onChange={(e) => onMessage(e.target.value)} placeholder="Type your message…" />
+      <FormField label="Message" htmlFor="messageeditor-message" required full>
+        <Textarea id="messageeditor-message" rows={5} required value={message} onChange={(e) => onMessage(e.target.value)} placeholder="Type your message…" />
         <div className="mt-1.5 flex items-center justify-between text-xs text-slate-400">
           <span>{showVars ? <>Variables: {VARS.join("  ")}</> : null}</span>
           <span>{s.count} chars · {s.parts} SMS {s.unicode ? "(unicode)" : ""}</span>

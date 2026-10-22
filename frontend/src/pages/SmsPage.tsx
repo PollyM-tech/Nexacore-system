@@ -8,7 +8,7 @@ import { PageHeader } from "@/shared/components/layout/PageHeader";
 export function SmsPage() {
   return (
     <>
-      <PageHeader title="SMS" description="Send notifications to customers and manage your Bangladeshi SMS gateways." />
+      <PageHeader title="SMS" description="Send notifications to customers and manage your configured SMS providers." />
       <Tabs variant="underline" aria-label="SMS">
         <TabItem active title="Compose">
           <SmsCompose />

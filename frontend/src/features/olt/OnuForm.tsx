@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { API } from "@/shared/api/endpoints";
 import { FormField } from "@/shared/components/ui/FormField";
 import { FormModal } from "@/shared/components/ui/FormModal";
-import { usePaginatedList } from "@/shared/hooks/usePaginatedList";
+import { useAdminOptions as usePaginatedList } from "@/features/admin/useAdminOptions";
 import type { Customer, OltDevice, Onu } from "@/shared/types/api";
 
 const EMPTY = {
@@ -44,26 +44,26 @@ export function OnuForm({ open, onClose, initial, onSubmit, submitting, error }:
   return (
     <FormModal open={open} onClose={onClose} title={initial ? "Edit ONU" : "Add ONU"}
       onSubmit={submit} submitting={submitting} error={error} submitLabel={initial ? "Save changes" : "Add ONU"}>
-      <FormField label="OLT" required>
-        <Select required value={f.olt} onChange={set("olt")}>
+      <FormField label="OLT" htmlFor="onuform-olt" required>
+        <Select id="onuform-olt" required value={f.olt} onChange={set("olt")}>
           <option value="">Select OLT…</option>
           {olts.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
         </Select>
       </FormField>
-      <FormField label="Serial number"><TextInput value={f.serial_number} onChange={set("serial_number")} placeholder="HWTC12345678" /></FormField>
-      <FormField label="ONU index / id" required><TextInput required value={f.onu_index} onChange={set("onu_index")} placeholder="e.g. 0/1/1:1" /></FormField>
-      <FormField label="PON port"><TextInput value={f.pon_port} onChange={set("pon_port")} placeholder="0/1/1" /></FormField>
-      <FormField label="Name / label"><TextInput value={f.name} onChange={set("name")} /></FormField>
-      <FormField label="ONU model"><TextInput value={f.onu_model} onChange={set("onu_model")} /></FormField>
-      <FormField label="Status">
-        <Select value={f.status} onChange={set("status")}>
+      <FormField label="Serial number" htmlFor="onuform-serial-number"><TextInput id="onuform-serial-number" value={f.serial_number} onChange={set("serial_number")} placeholder="HWTC12345678" /></FormField>
+      <FormField label="ONU index / id" htmlFor="onuform-onu-index-id" required><TextInput id="onuform-onu-index-id" required value={f.onu_index} onChange={set("onu_index")} placeholder="e.g. 0/1/1:1" /></FormField>
+      <FormField label="PON port" htmlFor="onuform-pon-port"><TextInput id="onuform-pon-port" value={f.pon_port} onChange={set("pon_port")} placeholder="0/1/1" /></FormField>
+      <FormField label="Name / label" htmlFor="onuform-name-label"><TextInput id="onuform-name-label" value={f.name} onChange={set("name")} /></FormField>
+      <FormField label="ONU model" htmlFor="onuform-onu-model"><TextInput id="onuform-onu-model" value={f.onu_model} onChange={set("onu_model")} /></FormField>
+      <FormField label="Stored status (manual)" htmlFor="onuform-status">
+        <Select id="onuform-status" value={f.status} onChange={set("status")}>
           <option value="online">Online</option><option value="offline">Offline</option>
           <option value="los">Loss of signal</option><option value="unknown">Unknown</option>
         </Select>
       </FormField>
-      <FormField label="Rx power (dBm)"><TextInput type="number" step="0.01" value={f.rx_power} onChange={set("rx_power")} placeholder="-21.50" /></FormField>
-      <FormField label="Customer" full>
-        <Select value={f.customer} onChange={set("customer")}>
+      <FormField label="Stored Rx power (dBm, manual)" htmlFor="onuform-rx-power-dbm"><TextInput id="onuform-rx-power-dbm" type="number" step="0.01" value={f.rx_power} onChange={set("rx_power")} placeholder="-21.50" /></FormField>
+      <FormField label="Customer" htmlFor="onuform-customer" full>
+        <Select id="onuform-customer" value={f.customer} onChange={set("customer")}>
           <option value="">Unassigned</option>
           {customers.map((c) => <option key={c.id} value={c.id}>{c.customer_name} · {c.customer_id}</option>)}
         </Select>

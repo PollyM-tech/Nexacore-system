@@ -24,5 +24,5 @@ export function useOnlineStatus() {
   const isOnline = (pppoeName?: string | null) =>
     !!pppoeName && onlineSet.has(pppoeName.toLowerCase());
 
-  return { isOnline, isLoading: query.isLoading, ready: query.isSuccess };
+  return { count: onlineSet.size, isError: query.isError, refetch: query.refetch, isOnline, isLoading: query.isLoading, ready: query.isSuccess };
 }

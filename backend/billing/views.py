@@ -1,4 +1,6 @@
-from django.db.models import Q
+from django.db import transaction
+from django.db.models import Count, Q
+from rest_framework.exceptions import ValidationError
 
 from django_filters.rest_framework import DjangoFilterBackend
 
@@ -53,6 +55,24 @@ class PackageViewSet(
 ):
     queryset = Package.objects.all()
     serializer_class = PackageSerializer
+
+    def get_queryset(self):
+        organization = self.get_organization()
+        return super().get_queryset().annotate(
+            customer_count=Count(
+                "customerprofile",
+                filter=Q(customerprofile__organization=organization),
+                distinct=True,
+            ),
+            radius_customer_count=Count(
+                "customerprofile",
+                filter=Q(
+                    customerprofile__organization=organization,
+                    customerprofile__router_info__authentication_mode="radius",
+                ),
+                distinct=True,
+            ),
+        )
 
     permission_classes = [
         IsAuthenticated,
@@ -128,11 +148,28 @@ class PackageViewSet(
             },
         )
 
+    @transaction.atomic
     def perform_update(
         self,
         serializer,
     ):
-        instance = self.get_object()
+        # Lock the package separately: aggregate querysets cannot be locked
+        # on PostgreSQL. Customer package reassignment uses this same lock.
+        instance = Package.objects.select_for_update().get(
+            pk=serializer.instance.pk, organization=self.get_organization(),
+        )
+        speed = serializer.validated_data.get("speed", instance.speed)
+        if speed != instance.speed and instance.customerprofile_set.filter(
+            organization=self.get_organization(),
+            router_info__authentication_mode="radius",
+        ).exists():
+            raise ValidationError({
+                "speed": ["This package is assigned to RADIUS customers. "
+                          "Change those customers to another package before editing the package speed."],
+            })
+        instance.customer_count = serializer.instance.customer_count
+        instance.radius_customer_count = serializer.instance.radius_customer_count
+        serializer.instance = instance
 
         before = {
             "name": instance.name,
@@ -168,11 +205,20 @@ class PackageViewSet(
             },
         )
 
+    @transaction.atomic
     def perform_destroy(
         self,
         instance,
     ):
         organization = self.get_organization()
+
+        instance = Package.objects.select_for_update().get(
+            pk=instance.pk, organization=organization,
+        )
+        if instance.customerprofile_set.filter(organization=organization).exists():
+            raise ValidationError({
+                "detail": "This package is assigned to customers and cannot be deleted. Deactivate it instead.",
+            })
 
         resource_id = instance.pk
         package_name = instance.name

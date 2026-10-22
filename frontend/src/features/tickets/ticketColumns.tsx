@@ -1,3 +1,4 @@
+import { dateTime } from "@/shared/utils/format";
 import type { Column } from "@/shared/components/data/DataTable";
 import { StatusBadge } from "@/shared/components/ui/StatusBadge";
 import type { Ticket } from "@/shared/types/api";
@@ -18,6 +19,6 @@ export const ticketColumns: Column<Ticket>[] = [
   {
     key: "created",
     header: "Opened",
-    render: (r) => (r.created_at ? new Date(r.created_at).toLocaleDateString() : "—"),
+    render: (r) => dateTime(r.created_at),
   },
 ];
