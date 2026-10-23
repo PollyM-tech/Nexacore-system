@@ -57,9 +57,11 @@ INSTALLED_APPS = [
     "radius",
 
     # Third party app
+    "hotspot",
     "rest_framework",
     "django_filters",
     "auth_kit",
+    "rest_framework_simplejwt.token_blacklist",
     "drf_spectacular",
     'allauth',
     'allauth.account',
@@ -150,7 +152,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = os.environ.get('DJANGO_TIME_ZONE', 'Africa/Nairobi')
 
 USE_I18N = True
 
@@ -174,8 +176,9 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.BrowsableAPIRenderer',  # For development
     ],
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'auth_kit.authentication.JWTCookieAuthentication',
+        'core.authentication.StaffCookieAuthentication',
     ],
+    'DEFAULT_THROTTLE_RATES': {'login': '10/min'},
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
@@ -232,3 +235,13 @@ def custom_get_app_list(self, request, app_label=None):
 
 admin.AdminSite.get_app_list = custom_get_app_list
 
+
+LINTECH_RELEASE = os.environ.get("LINTECH_RELEASE", "development")
+from .production import apply as apply_production
+
+RADIUS_INTERNAL_TOKEN = os.environ.get("LINTECH_RADIUS_INTERNAL_TOKEN", "")
+RADIUS_NAS_NETWORK = os.environ.get("RADIUS_CLIENT_NETWORK", "10.64.0.0/16")
+RADIUS_ISOLATED = os.environ.get("LINTECH_RADIUS_ISOLATED", "0") == "1"
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "")
+
+apply_production(globals())

@@ -22,8 +22,11 @@ fi
 
 case "${1:-web}" in
   web)
-    python manage.py migrate --noinput
+    if [ "${LINTECH_ENV:-development}" != "production" ]; then
+      python manage.py migrate --noinput
+    fi
     exec gunicorn config.wsgi:application \
+      --logger-class core.access_logging.SafeAccessLogger \
       --bind 0.0.0.0:8000 \
       --workers "${GUNICORN_WORKERS:-3}" \
       --timeout "${GUNICORN_TIMEOUT:-60}" \
@@ -33,7 +36,10 @@ case "${1:-web}" in
     exec python manage.py qcluster
     ;;
   migrate)
-    exec python manage.py migrate --noinput
+    python manage.py migrate --noinput
+    if [ "${LINTECH_ENV:-development}" = "production" ]; then
+      python manage.py createcachetable
+    fi
     ;;
   shell)
     exec python manage.py shell

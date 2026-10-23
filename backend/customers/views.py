@@ -1433,6 +1433,13 @@ class AddressZoneViewSet(
         )
 
 
+    def perform_destroy(self, instance):
+        from rest_framework.exceptions import ValidationError
+        if instance.customerprofile_set.exists():
+            raise ValidationError({"zone": "This zone has assigned customers. Reassign them before deleting it."})
+        instance.delete()
+
+
 @admin_ticket_schema_view
 class AdminSupportTicketViewSet(
     viewsets.ModelViewSet

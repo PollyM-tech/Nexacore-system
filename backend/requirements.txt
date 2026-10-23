@@ -10,11 +10,11 @@ attrs==26.1.0
     #   referencing
 brotli==1.2.0
     # via whitenoise
-certifi==2026.5.20
+certifi==2026.10.19
     # via requests
 charset-normalizer==3.4.7
     # via requests
-django==6.0.5
+django==6.0.8
     # via
     #   django-allauth
     #   django-filter
@@ -33,7 +33,7 @@ django-picklefield==3.4.0
     # via django-q2
 django-q2==1.10.0
     # via isp
-djangorestframework==3.17.1
+djangorestframework==3.18.2
     # via
     #   djangorestframework-simplejwt
     #   drf-auth-kit
@@ -67,7 +67,7 @@ psycopg-binary==3.3.4 ; implementation_name != 'pypy'
     # via psycopg
 puresnmp==1.11.0.post1
     # via isp
-pyjwt==2.12.1
+pyjwt==2.15.0
     # via djangorestframework-simplejwt
 pyyaml==6.0.3
     # via drf-spectacular
@@ -85,7 +85,7 @@ rpds-py==0.30.0
     #   referencing
 six==1.17.0
     # via puresnmp
-sqlparse==0.5.5
+sqlparse==0.6.0
     # via django
 structlog==25.5.0
     # via drf-auth-kit
@@ -97,11 +97,11 @@ tzdata==2026.2 ; sys_platform == 'win32'
     #   psycopg
 uritemplate==4.2.0
     # via drf-spectacular
-urllib3==2.7.0
+urllib3==2.8.0
     # via requests
 verlib==0.1
     # via puresnmp
 whitenoise==6.12.0
     # via isp
-cryptography>=45,<47
-python-dateutil>=2.9,<3
+cryptography==50.0.0
+python-dateutil==2.9.0.post0

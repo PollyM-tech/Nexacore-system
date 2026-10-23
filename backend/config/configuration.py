@@ -18,6 +18,10 @@ SPECTACULAR_SETTINGS = {
 }
 
 AUTH_KIT = {
+    'REGISTER_VIEW': 'core.security.ClosedRegistrationView',
+    'LOGOUT_VIEW': 'core.security.StaffLogoutView',
+    'LOGIN_VIEW': 'core.security.StaffLoginView',
+    'JWT_REFRESH_VIEW': 'core.security.StaffRefreshView',
     'USER_SERIALIZER': 'customers.serializers.users.StaffIdentitySerializer',
     'AUTH_TYPE': 'jwt',
     'USE_AUTH_COOKIE': True,
@@ -27,13 +31,14 @@ AUTH_KIT = {
     'AUTH_JWT_COOKIE_PATH': '/',
     'AUTH_JWT_REFRESH_COOKIE_NAME': 'auth-refresh-jwt',
     'AUTH_JWT_REFRESH_COOKIE_PATH': '/',
-    'AUTH_JWT_COOKIE_SECURE': False,
-    'AUTH_JWT_COOKIE_HTTPONLY': True,
-    'AUTH_JWT_COOKIE_SAMESITE': 'Lax',
+    'AUTH_COOKIE_SECURE': False,
+    'AUTH_COOKIE_HTTPONLY': True,
+    'AUTH_COOKIE_SAMESITE': 'Lax',
     'LOGIN_REQUEST_SERIALIZER': 'customers.serializers.users.EmailOnlyLoginRequestSerializer',
 }
 
 SIMPLE_JWT = {
+    'CHECK_REVOKE_TOKEN': True,
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=int(os.environ.get('JWT_ACCESS_LIFETIME_MINUTES', 30))),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=int(os.environ.get('JWT_REFRESH_LIFETIME_DAYS', 7))),
     'ROTATE_REFRESH_TOKENS': True,

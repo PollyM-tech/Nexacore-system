@@ -1,6 +1,7 @@
 from django.utils import timezone
 
 from rest_framework import status, viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -157,6 +158,9 @@ class MikrotikRouterViewSet(
         instance,
     ):
         organization = self.get_organization()
+
+        if instance.customer_routers.exists():
+            raise ValidationError({"router": "This router has assigned customer connections. Disable it instead."})
 
         resource_id = instance.pk
         router_name = instance.name

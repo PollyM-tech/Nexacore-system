@@ -11,7 +11,7 @@ from organizations.models import OrganizationMembership
 class EmailOnlyLoginRequestSerializer(LoginRequestSerializer):
     username = None
     email = serializers.EmailField(write_only=True)
-    password = serializers.CharField(style={"input_type": "password"}, write_only=True)
+    password = serializers.CharField(style={"input_type": "password"}, write_only=True, trim_whitespace=False)
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         serializers.Serializer.__init__(self, *args, **kwargs)
@@ -59,5 +59,6 @@ class StaffIdentitySerializer(UserSerializer):
             "organization": {
                 "id": membership.organization_id,
                 "name": membership.organization.name,
+                "slug": membership.organization.slug,
             },
         }

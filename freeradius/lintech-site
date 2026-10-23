@@ -1,0 +1,65 @@
+server lintech {
+    listen {
+        type = auth
+        ipaddr = *
+        port = 1812
+    }
+    listen {
+        type = acct
+        ipaddr = *
+        port = 1813
+    }
+    authorize {
+        preprocess
+        update control {
+            REST-HTTP-Header := "X-Lintech-Radius-Key: $ENV{LINTECH_RADIUS_INTERNAL_TOKEN}"
+        }
+        lintech_authorize
+        if (fail || reject || invalid || notfound) {
+            reject
+        }
+        chap
+        mschap
+        pap
+    }
+    authenticate {
+        Auth-Type PAP {
+            pap
+        }
+        Auth-Type CHAP {
+            chap
+        }
+        Auth-Type MS-CHAP {
+            mschap
+        }
+    }
+    preacct {
+        preprocess
+        acct_unique
+    }
+    accounting {
+        update control {
+            REST-HTTP-Header := "X-Lintech-Radius-Key: $ENV{LINTECH_RADIUS_INTERNAL_TOKEN}"
+        }
+        lintech_accounting {
+            fail = return
+            reject = return
+            invalid = return
+            notfound = return
+        }
+        sql
+    }
+    post-auth {
+        update control {
+            REST-HTTP-Header := "X-Lintech-Radius-Key: $ENV{LINTECH_RADIUS_INTERNAL_TOKEN}"
+        }
+        lintech_commit
+        if (fail || reject || invalid || notfound) {
+            reject
+        }
+        # Do not write PAP/CHAP passwords to radpostauth.
+        Post-Auth-Type REJECT {
+            attr_filter.access_reject
+        }
+    }
+}

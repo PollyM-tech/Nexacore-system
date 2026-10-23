@@ -32,3 +32,9 @@ SCHEDULER_TASKS = {
     "default_schedule_type": "I",
 },
 }
+NETWORK_ACCESS_TASK = "network_access_maintenance"
+SCHEDULER_TASKS[NETWORK_ACCESS_TASK] = {
+    "name": "Hotspot expiry and RADIUS disconnect retries",
+    "func": "hotspot.tasks.network_access_maintenance",
+    "default_schedule_type": "I",
+}

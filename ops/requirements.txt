@@ -1,0 +1,2 @@
+# Operations only. The application already uses this library for field encryption.
+cryptography==50.0.0

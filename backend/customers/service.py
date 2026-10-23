@@ -954,6 +954,12 @@ class CustomerService:
                 }
             )
 
+        from django.conf import settings
+        info_for_nas = getattr(customer, "router_info", None)
+        if getattr(settings, "RADIUS_ISOLATED", False) and info_for_nas and info_for_nas.authentication_mode == "radius":
+            from radius.subscribers import set_status
+            return set_status(customer, status_value)
+
         if (
             customer.customer_status
             == status_value
@@ -1017,19 +1023,10 @@ class CustomerService:
                     )
 
                     if info.router:
-                        (
-                            disconnect_pppoe_session_on_router(
-                                info.router,
-                                radius_username,
-                            )
-                        )
+                        disconnect_pppoe_session_on_router(info.router, radius_username)
 
-            except Exception as exc:
-                warning = (
-                    "Status saved locally, but "
-                    "RADIUS/router sync failed: "
-                    f"{exc}"
-                )
+            except Exception:
+                warning = "Status saved locally, but RADIUS synchronization or disconnect queueing failed. Check the NAS and retry through support."
 
             return customer, warning
 

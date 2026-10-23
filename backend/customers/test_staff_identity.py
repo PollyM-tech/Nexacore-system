@@ -17,7 +17,7 @@ class StaffIdentityTests(TestCase):
         response = self.client.get("/api/auth/user/")
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.data["is_platform_admin"])
-        self.assertEqual(response.data["membership"], {"role": "owner", "role_label": "Owner", "organization": {"id": self.org.pk, "name": "ISP"}})
+        self.assertEqual(response.data["membership"], {"role": "owner", "role_label": "Owner", "organization": {"id": self.org.pk, "name": "ISP", "slug": "identity-isp"}})
         self.assertNotIn("password", response.data)
 
     def test_superadmin_is_separate_from_membership_role(self):

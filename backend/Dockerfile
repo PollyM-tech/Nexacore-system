@@ -9,6 +9,10 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends curl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
+ARG LINTECH_RELEASE=development
+LABEL org.opencontainers.image.revision=$LINTECH_RELEASE
+ENV LINTECH_RELEASE=$LINTECH_RELEASE
+
 WORKDIR /app
 
 COPY requirements.txt ./

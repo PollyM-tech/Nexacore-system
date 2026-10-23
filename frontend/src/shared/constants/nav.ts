@@ -28,6 +28,8 @@ export const CUSTOMER_SUBNAV: NavChild[] = [
 export const MAIN_NAV: NavItem[] = [
   { label: "Dashboard", to: ROUTES.dashboard, icon: "dashboard", group: "Overview" },
   { label: "Customers", to: ROUTES.customers, icon: "users", group: "Subscribers", children: CUSTOMER_SUBNAV },
+  { label: "Hotspot", to: "/admin/hotspot", icon: "wifi", group: "Subscribers" },
+  { label: "RADIUS NAS", to: "/admin/radius-nas", icon: "router", group: "Network" },
   { label: "Packages", to: ROUTES.packages, icon: "package", group: "Subscribers" },
   { label: "Billing", to: ROUTES.billing, icon: "billing", group: "Subscribers" },
   { label: "Payments", to: ROUTES.payments, icon: "cash", group: "Subscribers" },

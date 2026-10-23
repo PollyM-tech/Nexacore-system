@@ -1,3 +1,4 @@
+from core.security import LoginThrottle
 from datetime import timedelta
 from secrets import compare_digest
 
@@ -86,7 +87,7 @@ class AuthViewSet(viewsets.ViewSet):
     Customer portal authentication and profile operations.
     """
 
-    @action(
+    @action(throttle_classes=[LoginThrottle],
         detail=False,
         methods=["post"],
     )

@@ -77,3 +77,11 @@ frontend/.vscode/*
 *.bak
 *.tmp
 *.orig
+
+# Encrypted operational archives and local release evidence
+.local/
+backups/
+release-manifests/
+
+**/__pycache__/
+.ops-venv/

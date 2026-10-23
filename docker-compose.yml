@@ -21,8 +21,11 @@ services:
       retries: 20
 
   backend:
+    image: lintech-backend:${LINTECH_RELEASE:-dev}
     build:
       context: ./backend
+      args:
+        LINTECH_RELEASE: ${LINTECH_RELEASE:-development}
     restart: unless-stopped
     depends_on:
       db:
@@ -30,6 +33,13 @@ services:
     environment: &backend_env
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY in .env}
       LINTECH_FIELD_ENCRYPTION_KEY: ${LINTECH_FIELD_ENCRYPTION_KEY:?set LINTECH_FIELD_ENCRYPTION_KEY in .env}
+      LINTECH_RELEASE: ${LINTECH_RELEASE:-development}
+      DJANGO_TIME_ZONE: ${DJANGO_TIME_ZONE:-Africa/Nairobi}
+      LINTECH_ENV: ${LINTECH_ENV:-development}
+      LINTECH_RADIUS_ISOLATED: ${LINTECH_RADIUS_ISOLATED:-0}
+      LINTECH_RADIUS_INTERNAL_TOKEN: ${LINTECH_RADIUS_INTERNAL_TOKEN:-}
+      RADIUS_CLIENT_NETWORK: ${RADIUS_CLIENT_NETWORK:-192.168.88.0/24}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       DJANGO_DEBUG: ${DJANGO_DEBUG:-False}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
       DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost,http://127.0.0.1}
@@ -43,7 +53,7 @@ services:
           "CMD",
           "curl",
           "-fsS",
-          "http://localhost:8000/api/schema/"
+          "http://localhost:8000/api/health/"
         ]
       interval: 15s
       timeout: 5s
@@ -51,8 +61,11 @@ services:
       start_period: 30s
 
   qcluster:
+    image: lintech-backend:${LINTECH_RELEASE:-dev}
     build:
       context: ./backend
+      args:
+        LINTECH_RELEASE: ${LINTECH_RELEASE:-development}
     restart: unless-stopped
     command: ["qcluster"]
     depends_on:
@@ -63,8 +76,11 @@ services:
     environment: *backend_env
 
   freeradius:
+    image: lintech-freeradius:${LINTECH_RELEASE:-dev}
     build:
       context: ./freeradius
+      args:
+        LINTECH_RELEASE: ${LINTECH_RELEASE:-development}
     restart: unless-stopped
     depends_on:
       db:
@@ -73,14 +89,20 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-isp}
       POSTGRES_USER: ${POSTGRES_USER:-isp}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-isp_password}
+      RADIUS_CLIENT_NETWORK: ${RADIUS_CLIENT_NETWORK:-192.168.88.0/24}
       RADIUS_SHARED_SECRET: ${RADIUS_SHARED_SECRET:?set RADIUS_SHARED_SECRET in .env}
+      LINTECH_RADIUS_ISOLATED: ${LINTECH_RADIUS_ISOLATED:-0}
+      LINTECH_RADIUS_INTERNAL_TOKEN: ${LINTECH_RADIUS_INTERNAL_TOKEN:-}
     ports:
       - "1812:1812/udp"
       - "1813:1813/udp"
 
   frontend:
+    image: lintech-frontend:${LINTECH_RELEASE:-dev}
     build:
       context: ./frontend
+      args:
+        LINTECH_RELEASE: ${LINTECH_RELEASE:-development}
     restart: unless-stopped
     depends_on:
       backend:

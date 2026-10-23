@@ -21,6 +21,16 @@ def process_successful_stk_payment(
     provisioning retry job.
     """
 
+    from payments.models import PaymentAttempt
+    if PaymentAttempt.objects.filter(pk=attempt_id, service_type="hotspot").exists():
+        from hotspot.payments import finalize_purchase
+        try:
+            finalize_purchase(attempt_id)
+            return {"attempt_id": attempt_id, "settled": True, "provisioned": True}
+        except Exception:
+            PaymentAttempt.objects.filter(pk=attempt_id).exclude(settlement_status="settled").update(settlement_status="settlement_failed")
+            return {"attempt_id": attempt_id, "settled": False, "provisioned": False, "error": "Hotspot payment confirmation or fulfillment is pending."}
+
     result = {
         "attempt_id": attempt_id,
         "settled": False,

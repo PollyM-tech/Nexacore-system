@@ -1,5 +1,6 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
+from .accounts import OrganizationStaffCreate
 from .views import MembershipViewSet, OrganizationViewSet, PlatformAudit, PlatformMe, PlatformSummary, PlatformUsers
 
 router = DefaultRouter()
@@ -12,6 +13,7 @@ router.register("audit", PlatformAudit, basename="platform-audit")
 members = MembershipViewSet.as_view({"get": "list", "post": "create"})
 member = MembershipViewSet.as_view({"get": "retrieve", "patch": "partial_update", "delete": "destroy"})
 urlpatterns = [
+    path("organizations/<int:org_id>/users/", OrganizationStaffCreate.as_view(), name="platform-create-staff"),
     path("me/", PlatformMe.as_view(), name="platform-me"),
     path("summary/", PlatformSummary.as_view(), name="platform-summary"),
     path("organizations/<int:org_id>/members/", members, name="platform-members"),

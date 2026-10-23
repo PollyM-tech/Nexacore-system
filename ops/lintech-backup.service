@@ -1,0 +1,12 @@
+[Unit]
+Description=Lintech encrypted database backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/lintech
+EnvironmentFile=/etc/lintech/backup-runtime.env
+ExecStart=/srv/lintech/.ops-venv/bin/python /srv/lintech/ops/backup.py create --production --key-file /etc/lintech/backup.key --directory /var/backups/lintech
+UMask=0077
+Nice=10

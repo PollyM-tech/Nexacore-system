@@ -1,11 +1,13 @@
 from rest_framework import serializers
 
 from .models import AuditLog
+from platform_api.redaction import redact_metadata
 
 
 class AuditLogSerializer(
     serializers.ModelSerializer
 ):
+    metadata = serializers.SerializerMethodField()
     username = serializers.SerializerMethodField()
     organization_name = (
         serializers.SerializerMethodField()
@@ -51,3 +53,6 @@ class AuditLogSerializer(
             return None
 
         return obj.organization.name
+
+    def get_metadata(self, obj):
+        return redact_metadata(obj.metadata)

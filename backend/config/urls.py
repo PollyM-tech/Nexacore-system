@@ -2,6 +2,9 @@
 
 from django.contrib import admin
 from django.urls import include, path
+from core.security import csrf_cookie, health
+from radius.internal import RadiusBridge
+from platform_api.permissions import IsPlatformAdmin
 
 from drf_spectacular.views import (
     SpectacularAPIView,
@@ -11,6 +14,10 @@ from drf_spectacular.views import (
 
 
 urlpatterns = [
+    path("api/internal/radius/<str:operation>/<str:ip>/", RadiusBridge.as_view()),
+    path("api/hotspot/", include("hotspot.urls")),
+    path("api/health/", health, name="health"),
+    path("api/auth/csrf/", csrf_cookie, name="csrf"),
     path("api/platform/", include("platform_api.urls")),
     # Public provider callbacks
     path("", include("payments.urls")),
@@ -24,12 +31,13 @@ urlpatterns = [
     # API documentation
     path(
         "api/schema/",
-        SpectacularAPIView.as_view(),
+        SpectacularAPIView.as_view(permission_classes=[IsPlatformAdmin]),
         name="schema",
     ),
     path(
         "api/docs/",
         SpectacularSwaggerView.as_view(
+            permission_classes=[IsPlatformAdmin],
             url_name="schema"
         ),
         name="swagger-ui",
@@ -37,6 +45,7 @@ urlpatterns = [
     path(
         "api/redoc/",
         SpectacularRedocView.as_view(
+            permission_classes=[IsPlatformAdmin],
             url_name="schema"
         ),
         name="redoc",

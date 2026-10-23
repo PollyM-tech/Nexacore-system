@@ -1,3 +1,4 @@
+import { ChangeAccountPassword } from "@/features/auth/ChangeAccountPassword";
 import { Alert, Avatar, Button, DarkThemeToggle } from "flowbite-react";
 import { useLogout } from "@/features/auth/useLogout";
 import { useSession } from "@/features/auth/useSession";
@@ -46,8 +47,10 @@ export function SettingsPage() {
           <Row label="Email">{isLoading ? "…" : email}</Row>
           <Row label="Account ID">{user?.pk ?? "—"}</Row>
           <Row label="Role">{[user?.is_platform_admin ? "Superadmin" : null, user?.membership?.role_label].filter(Boolean).join(" · ") || "Not supplied by the account API"}</Row>
-          {user?.membership && <Row label="Organization">{user.membership.organization.name}</Row>}
+          {user?.membership && <><Row label="Organization">{user.membership.organization.name}</Row><Row label="Customer portal organization code">{user.membership.organization.slug || "Unavailable"}</Row></>}
         </Card>
+
+        <Card title="Account security"><ChangeAccountPassword /></Card>
 
         <Card title="Preferences" description="Appearance and interface options.">
           <div className="flex items-center justify-between">

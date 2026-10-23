@@ -4,12 +4,13 @@ import { portalApi, setPortalToken, clearPortalToken, getPortalToken } from "@/s
 import { ROUTES } from "@/shared/constants/routes";
 import type { PortalProfile } from "@/features/portal/types";
 
-type Credentials = { pppoe_name: string; pppoe_pass: string };
+type Credentials = { organization: string; pppoe_name: string; pppoe_pass: string };
 
 export function usePortalLogin() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   return useMutation({
+    gcTime: 0,
     mutationFn: async (body: Credentials) => {
       const { data } = await portalApi.post<{ token: string }>("/auth/login/", body);
       return data;

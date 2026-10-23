@@ -1,6 +1,12 @@
 from django.urls import path
 
+from rest_framework.routers import DefaultRouter
+from .nas_api import NasViewSet, DisconnectViewSet
 from radius.views import RadiusSessionViewSet
+
+router = DefaultRouter()
+router.register("nas", NasViewSet)
+router.register("disconnects", DisconnectViewSet)
 
 
 session_list = (
@@ -36,7 +42,7 @@ customer_summary = (
 )
 
 
-urlpatterns = [
+urlpatterns = router.urls + [
     path(
         "sessions/",
         session_list,

@@ -1,0 +1,59 @@
+rest lintech_client {
+    authorize {
+        uri = "http://backend:8000/api/internal/radius/client/%{Packet-Src-IP-Address}/"
+        method = 'get'
+        force_to = 'json'
+        do_xlat = no
+        timeout = 3
+    }
+    pool {
+        start = 0
+        min = 0
+        max = 16
+        spare = 2
+    }
+}
+rest lintech_authorize {
+    authorize {
+        uri = "http://backend:8000/api/internal/radius/authorize/%{Packet-Src-IP-Address}/"
+        method = 'post'
+        body = 'json'
+        force_to = 'json'
+        do_xlat = no
+        timeout = 3
+    }
+    pool {
+        start = 0
+        min = 0
+        max = 16
+        spare = 2
+    }
+}
+rest lintech_commit {
+    post-auth {
+        uri = "http://backend:8000/api/internal/radius/commit/%{Packet-Src-IP-Address}/"
+        method = 'post'
+        body = 'json'
+        timeout = 3
+    }
+    pool {
+        start = 0
+        min = 0
+        max = 16
+        spare = 2
+    }
+}
+rest lintech_accounting {
+    accounting {
+        uri = "http://backend:8000/api/internal/radius/accounting/%{Packet-Src-IP-Address}/"
+        method = 'post'
+        body = 'json'
+        timeout = 3
+    }
+    pool {
+        start = 0
+        min = 0
+        max = 16
+        spare = 2
+    }
+}

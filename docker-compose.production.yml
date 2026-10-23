@@ -1,0 +1,33 @@
+# Explicitly use with -f docker-compose.yml -f docker-compose.production.yml.
+# This excludes the localhost override and never publishes Django/PostgreSQL ports.
+services:
+  backend:
+    environment:
+      LINTECH_ENV: production
+      DJANGO_DEBUG: "False"
+      DJANGO_ALLOWED_HOSTS: ${PUBLIC_DOMAIN:?Set your owned domain}
+      DJANGO_CSRF_TRUSTED_ORIGINS: https://${PUBLIC_DOMAIN:?Set your owned domain}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-H", "Host: ${PUBLIC_DOMAIN}", "http://localhost:8000/api/health/"]
+  qcluster:
+    environment:
+      LINTECH_ENV: production
+      DJANGO_DEBUG: "False"
+      DJANGO_ALLOWED_HOSTS: ${PUBLIC_DOMAIN:?Set your owned domain}
+      DJANGO_CSRF_TRUSTED_ORIGINS: https://${PUBLIC_DOMAIN:?Set your owned domain}
+  freeradius:
+    environment:
+      RADIUS_CLIENT_NETWORK: ${RADIUS_CLIENT_NETWORK:?Set the trusted NAS/VPN subnet}
+  frontend:
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?Set your owned domain}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./ops/Caddyfile.production:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+volumes:
+  caddy_data:
+  caddy_config:

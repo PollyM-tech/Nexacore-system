@@ -1,3 +1,6 @@
+import { HotspotPage } from "@/pages/HotspotPage";
+import { RadiusNasPage } from "@/pages/RadiusNasPage";
+import { HotspotPurchasePage } from "@/pages/HotspotPurchasePage";
 import { PlatformProtectedRoute } from "@/features/platform/PlatformProtectedRoute";
 import { PlatformShell, PlatformSettings } from "@/features/platform/PlatformShell";
 import { PlatformDashboard } from "@/features/platform/PlatformDashboard";
@@ -49,6 +52,7 @@ export function AppRouter() {
             <Route path="*" element={<Navigate to="/superadmin" replace />} />
           </Route>
         </Route>
+        <Route path="/hotspot/:nasId" element={<HotspotPurchasePage />} />
         <Route path="/admin/login" element={<LoginPage />} />
         <Route path="/admin" element={<ProtectedRoute />}>
           <Route element={<AppShell />}>
@@ -62,6 +66,8 @@ export function AppRouter() {
             <Route path="packages" element={<PackagesPage />} />
             <Route path="billing" element={<BillingPage />} />
             <Route path="sms" element={<SmsPage />} />
+            <Route path="hotspot" element={<HotspotPage />} />
+            <Route path="radius-nas" element={<RadiusNasPage />} />
             <Route path="routers" element={<RoutersPage />} />
             <Route path="olt" element={<OltPage />} />
             <Route path="scheduler" element={<SchedulerPage />} />

@@ -14,4 +14,4 @@ export const platformUserColumns:Column<PlatformUser>[]=[
  {key:"joined",header:"Joined",render:u=>dateTime(u.date_joined)},
  {key:"last",header:"Last login",render:u=>dateTime(u.last_login)},
 ];
-export function PlatformUsers() {return <><PageHeader title="Platform users" description="Read-only account inventory. User creation, invitations and credential management are not available in this API." /><PlatformList<PlatformUser> queryKey={platformKeys.users} url={PLATFORM.users} columns={platformUserColumns} searchLabel="Search username, email or name" /></>;}
+export function PlatformUsers() {return <><PageHeader title="Platform users" description="Account inventory. Create ISP staff accounts from an organization’s member section. Platform privilege changes and password retrieval are not available." /><PlatformList<PlatformUser> queryKey={platformKeys.users} url={PLATFORM.users} columns={platformUserColumns} searchLabel="Search username, email or name" /></>;}

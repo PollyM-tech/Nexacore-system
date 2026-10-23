@@ -17,6 +17,7 @@ class CustomerPortalLoginSerializer(serializers.Serializer):
     pppoe_pass = serializers.CharField(
         max_length=255,
         write_only=True,
+        trim_whitespace=False,
     )
 
 

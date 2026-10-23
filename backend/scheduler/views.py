@@ -18,6 +18,7 @@ from organizations.permissions import (
 )
 
 from scheduler.constants import (
+    NETWORK_ACCESS_TASK,
     BILL_DUE_DISCONNECT_TASK,
     BILLING_DATE_UPDATE_TASK,
     MONTHLY_BILL_TASK,
@@ -557,6 +558,11 @@ class SchedulerViewSet(
                 )
 
                 schedule.schedule_type = "H"
+
+            elif pk == NETWORK_ACCESS_TASK:
+                schedule.next_run = timezone.now()
+                schedule.schedule_type = "I"
+                schedule.minutes = 1
 
             elif pk == MPESA_RECONCILIATION_TASK:
                 schedule.next_run = (

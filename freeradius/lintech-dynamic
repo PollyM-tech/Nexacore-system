@@ -1,0 +1,14 @@
+server lintech_dynamic {
+    authorize {
+        update control {
+            REST-HTTP-Header := "X-Lintech-Radius-Key: $ENV{LINTECH_RADIUS_INTERNAL_TOKEN}"
+        }
+        lintech_client
+        if (ok || updated) {
+            ok
+        }
+        else {
+            reject
+        }
+    }
+}

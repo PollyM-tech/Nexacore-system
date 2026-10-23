@@ -8,6 +8,7 @@ import { ROUTES } from "@/shared/constants/routes";
 
 export function PortalLoginPage() {
   const login = usePortalLogin();
+  const [organization, setOrganization] = useState("");
   const [pppoe_name, setName] = useState("");
   const [pppoe_pass, setPass] = useState("");
 
@@ -15,7 +16,7 @@ export function PortalLoginPage() {
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    login.mutate({ pppoe_name, pppoe_pass });
+    login.mutate({ organization: organization.trim(), pppoe_name, pppoe_pass });
   };
 
   return (
@@ -29,6 +30,7 @@ export function PortalLoginPage() {
           <Alert color="failure" className="mt-5">Invalid PPPoE username or password.</Alert>
         ) : null}
         <form className="mt-6 flex flex-col gap-4" onSubmit={submit}>
+          <div><Label htmlFor="portal-organization" className="mb-1.5 block">ISP organization code</Label><TextInput id="portal-organization" required value={organization} onChange={e => setOrganization(e.target.value)} placeholder="Provided by your ISP" autoComplete="organization" /><p className="mt-1 text-xs text-slate-500">Ask your ISP for its organization code.</p></div>
           <div>
             <Label htmlFor="pppoe" className="mb-1.5 block">PPPoE username</Label>
             <TextInput id="pppoe" required value={pppoe_name} onChange={(e) => setName(e.target.value)} placeholder="your-username" />

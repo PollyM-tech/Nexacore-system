@@ -1,3 +1,4 @@
+import { CreateStaffAccount } from "./CreateStaffAccount";
 import { Button, Select } from "flowbite-react";
 import { useState } from "react";
 import { PLATFORM, platformKeys } from "./api";
@@ -12,15 +13,16 @@ import type { Membership, MemberRole, PlatformUser } from "./types";
 export const memberRoles:MemberRole[]=["owner","admin","technician","billing","support","viewer"];
 type Action={kind:"add"}|{kind:"edit"|"remove";member:Membership};
 export function OrganizationMembers({orgId}:{orgId:string}) {
+ const [newAccount,setNewAccount]=useState(false);
  const [action,setAction]=useState<Action|null>(null);
- return <section className="space-y-4"><h2 className="text-xl font-semibold">Organization members</h2><p className="text-sm text-slate-500">Add existing users only. The backend protects the last active owner; there is no invitation flow.</p>
- <PlatformList<Membership> queryKey={platformKeys.members(orgId)} url={PLATFORM.members(orgId)} action={<Button onClick={()=>setAction({kind:"add"})}>Add existing user</Button>} columns={[
+ return <section className="space-y-4"><h2 className="text-xl font-semibold">Organization members</h2><p className="text-sm text-slate-500">Create a staff account or add an existing user. The backend protects the last active owner.</p>
+ <PlatformList<Membership> queryKey={platformKeys.members(orgId)} url={PLATFORM.members(orgId)} action={<div className="flex flex-wrap gap-2"><Button onClick={()=>setNewAccount(true)}>Create staff account</Button><Button color="light" onClick={()=>setAction({kind:"add"})}>Add existing user</Button></div>} columns={[
  {key:"user",header:"User",render:m=><div>{m.user.username}<p className="text-xs">{m.user.email}</p></div>},
  {key:"role",header:"Role",render:m=>m.role},
  {key:"active",header:"Membership",render:m=><StatusBadge status={m.is_active?"active":"inactive"} />},
  {key:"joined",header:"Joined",render:m=>dateTime(m.created_at)},
  {key:"actions",header:"Actions",render:m=><div className="flex gap-2"><Button type="button" size="xs" color="light" onClick={()=>setAction({kind:"edit",member:m})}>Edit membership</Button><Button type="button" size="xs" color="failure" onClick={()=>setAction({kind:"remove",member:m})}>Remove membership</Button></div>},
- ]} />{action&&<MembershipForm orgId={orgId} action={action} onClose={()=>setAction(null)} />}</section>;
+ ]} />{newAccount&&<CreateStaffAccount orgId={orgId} onClose={()=>setNewAccount(false)} />}{action&&<MembershipForm orgId={orgId} action={action} onClose={()=>setAction(null)} />}</section>;
 }
 function MembershipForm({orgId,action,onClose}:{orgId:string;action:Action;onClose:()=>void}) {
  const member=action.kind==="add"?undefined:action.member;

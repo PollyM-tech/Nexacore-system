@@ -112,3 +112,14 @@ class OnuSerializer(
             "last_seen",
             "created_at",
         ]
+
+    def validate(self, attrs):
+        from organizations.services import get_user_organization
+        organization = get_user_organization(self.context["request"].user)
+        olt = attrs.get("olt", self.instance.olt if self.instance else None)
+        customer = attrs.get("customer", self.instance.customer if self.instance else None)
+        if olt is None or olt.organization_id != organization.pk:
+            raise serializers.ValidationError({"olt": "Select an OLT in your organization."})
+        if customer is not None and customer.organization_id != organization.pk:
+            raise serializers.ValidationError({"customer": "Select a customer in your organization."})
+        return attrs
